@@ -67,7 +67,7 @@
   ansible.builtin.systemd_service:
     name: fwupd-refresh.timer
     state: stopped
-    masked: true
+    enabled: false
   register: common_fwupd_off
   when: offline and common_fwupd_timer.stat.exists
 
