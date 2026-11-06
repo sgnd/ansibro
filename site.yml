@@ -138,6 +138,17 @@
         name: cleanup
         tasks_from: nodes
 
+# A server that is no longer in the PostgreSQL cluster (Patroni) stops it before the firewall changes.
+- name: Servers that leave the PostgreSQL cluster
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Stop PostgreSQL where config.yml no longer has it
+      ansible.builtin.include_role:
+        name: cleanup
+        tasks_from: postgres
+      when: "'postgres' not in node_apps"
+
 - name: Base system
   hosts: all
   environment: "{{ apt_env }}"  # offline: apt uses only the bundle
