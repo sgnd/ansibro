@@ -64,6 +64,8 @@ and `ip` values (with `wireguard: true` only `host` changes), keep `state/`, and
 
 Each server gets its newest backup back, the swarm comes back with your stacks, and the databases are
 loaded from their dumps. Old servers are removed from the swarm. A restore only runs on new servers.
+With a new `domain`, change Uptime Kuma's monitors to it in its web page: after the first install
+they are yours, and the installer does not change them.
 Lost `state/` too? Then you need the restic password that you saved outside the cluster
 (it was in `state/secrets/restic`). Install [restic](https://restic.net) on your computer, then run this.
 `<repository>` is `backup.repository` from `config.yml`:
