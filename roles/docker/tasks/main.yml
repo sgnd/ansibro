@@ -27,13 +27,6 @@
     allow_downgrade: true
   when: "'docker-ce' not in ansible_facts.packages"
 
-# Hold = "apt upgrade" will not change the Docker version.
-- name: Hold Docker packages
-  ansible.builtin.dpkg_selections:
-    name: "{{ item.split('=')[0] }}"
-    selection: hold
-  loop: "{{ docker_packages }}"
-
 - name: Configure Docker daemon
   ansible.builtin.template:
     src: daemon.json.j2
@@ -50,6 +43,14 @@
   loop_control:
     loop_var: docker_host
   when: docker_host == inventory_hostname
+
+# Hold = "apt upgrade" (and unattended-upgrades) will not change the Docker version.
+# After the update: installing a version with apt takes the hold away.
+- name: Hold Docker packages
+  ansible.builtin.dpkg_selections:
+    name: "{{ item.split('=')[0] }}"
+    selection: hold
+  loop: "{{ docker_packages }}"
 
 - name: Start Docker
   ansible.builtin.service:
