@@ -64,8 +64,10 @@ spec:
         port: 8082
         hostPort: 8082
 {% endif %}
+    # (The chart takes the type under spec; a plain "service.type" is ignored.)
     service:
-      type: ClusterIP
+      spec:
+        type: ClusterIP
     # A host port can be used by one Traefik per server only: stop the old one before the new one starts.
     updateStrategy:
       type: RollingUpdate
