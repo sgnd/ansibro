@@ -54,3 +54,25 @@
       APT::Periodic::Update-Package-Lists "1";
       APT::Periodic::Unattended-Upgrade "1";
     mode: "0644"
+
+# Offline: Ubuntu's daily firmware check (fwupd-refresh) needs internet. It would fail every day,
+# and the SystemdServiceFailed alert would fire.
+- name: Look for the firmware check
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system/fwupd-refresh.timer
+  register: common_fwupd_timer
+  when: offline
+
+- name: Turn off the firmware check (offline)
+  ansible.builtin.systemd_service:
+    name: fwupd-refresh.timer
+    state: stopped
+    masked: true
+  register: common_fwupd_off
+  when: offline and common_fwupd_timer.stat.exists
+
+- name: Forget an earlier failed firmware check
+  ansible.builtin.command: systemctl reset-failed fwupd-refresh.service
+  failed_when: false  # it may never have run
+  changed_when: false
+  when: common_fwupd_off is changed  # noqa: no-handler (it must run right after)
