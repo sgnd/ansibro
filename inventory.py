@@ -115,6 +115,13 @@ def check_backup(backup):
         fail("backup.repository is required, like s3:https://s3.example.com/my-bucket or /mnt/backup")
     if str(backup["repository"]).startswith("s3:") and not (backup.get("s3_access_key") and backup.get("s3_secret_key")):
         fail("backup: an s3: repository needs s3_access_key and s3_secret_key")
+    if str(backup["repository"]).startswith("s3:"):
+        # s3:https://<server>/<bucket>[/<folder>]: restic would retry a wrong bucket name for many minutes.
+        parts = str(backup["repository"])[3:].split("://")[-1].split("/")
+        bucket = parts[1] if len(parts) > 1 else ""
+        if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket):
+            fail(f"backup.repository: the bucket name must be 3 to 63 small letters, numbers, dots or -, "
+                 f"like s3:https://s3.example.com/my-bucket, got '{bucket}'")
     if not TIME.match(str(backup.get("time", "02:00"))):
         fail(f"backup.time must look like \"02:00\", in quotes (without quotes it is read as a number), "
              f"got {backup.get('time')}")

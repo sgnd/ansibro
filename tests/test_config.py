@@ -86,6 +86,9 @@ CASES = [
     ("backup as text", lambda c: c.update(backup="s3://bucket"), "backup must look like"),
     ("backup without repository", lambda c: c.update(backup={"time": "02:00"}), "backup.repository is required"),
     ("backup typo", lambda c: c.update(backup={"repository": "/mnt/b", "keep_days": 7}), "unknown setting backup.keep_days"),
+    ("s3 bucket name too short", lambda c: c.update(backup={"repository": "s3:http://10.0.0.5:9000/v1",
+                                                             "s3_access_key": "a", "s3_secret_key": "b"}),
+     "bucket name must be 3 to 63"),
     ("s3 backup without keys", lambda c: c.update(backup={"repository": "s3:https://s3.example.com/b"}), "needs s3_access_key"),
     ("backup time without quotes", lambda c: c.update(backup={"repository": "/mnt/b", "time": 120}), "must look like"),
     ("backup keep as text", lambda c: c.update(backup={"repository": "/mnt/b", "keep_daily": "7"}), "must be a number"),
@@ -132,7 +135,7 @@ def with_wireguard(c):
 GOOD = [
     ("host on one node", lambda c: c["nodes"][0].update(host="203.0.113.5")),
     ("wireguard with host on every node", with_wireguard),
-    ("backup to S3", lambda c: c.update(backup={"repository": "s3:https://s3.example.com/b", "s3_access_key": "a",
+    ("backup to S3", lambda c: c.update(backup={"repository": "s3:https://s3.example.com/my-bucket", "s3_access_key": "a",
                                                  "s3_secret_key": "b", "time": "03:30", "keep_daily": 14})),
     ("backup to a folder", lambda c: c.update(backup={"repository": "/mnt/backup"})),
     ("victoria with a webhook", monitored),
