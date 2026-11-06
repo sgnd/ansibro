@@ -11,6 +11,15 @@
       key=$(cat /etc/wireguard/private.key)
       export key
       wg syncconf wg0 <(wg-quick strip wg0 | awk '{ print } /^\[Interface\]/ { print "PrivateKey = " ENVIRON["key"] }')
+      # syncconf does not change routes (wg-quick makes them only at start): add a route for each
+      # new server, and remove the routes of servers that are gone.
+      want=$(wg show wg0 allowed-ips | tr -s '[:blank:]' '\n' | grep / | sed 's#/32$##' | sort -u)
+      for ip in $want; do
+        ip route replace "$ip" dev wg0
+      done
+      for ip in $(ip -4 route show dev wg0 | awk '{ print $1 }'); do
+        grep -qxF "$ip" <<< "$want" || ip route del "$ip" dev wg0
+      done
     else
       systemctl restart wg-quick@wg0
     fi
