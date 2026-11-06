@@ -22,12 +22,18 @@ Point `*.{{ domain }}` to the public IP of {% for n in traefik_nodes %}{{ n }} (
 | App | Runs on | How to reach it |
 |-----|---------|-----------------|
 {% for app, target in apps.items() %}
-| {{ app }} | {{ target }} | {{ catalog[app].info | replace('<domain>', domain) | replace('<ip>', hostvars[target].node_ip | default('')) }} |
+| {{ app }} | {{ orchestrator if target == 'swarm' else app_nodes[app] | join(', ') }} | {{ catalog[app].info | replace('<domain>', domain) | replace('<ip>', hostvars[target].node_ip | default('')) | replace('<admin login>', admin_login) }} |
 {% endfor %}
 
 ## Passwords
 
-From `state/secrets/`. Change them in the app, then update the file too.
+From `state/secrets/`. To change one:
+
+- traefik_admin, redis, valkey, nats, rustfs_access_key, rustfs_secret_key, monitor and the files that end in `_db`:
+  change the file, then run `./install.sh` again. The installer sets these in the apps every run.
+- mariadb, keycloak_admin, beszel_admin, openbao_root_token, registry and restic: the installer logs in with these.
+  Change the password in the app and in the file at the same time, then run `./install.sh` again.
+- The others: change it in the app, then write the new one in the file too.
 
 | File | Password |
 |------|----------|

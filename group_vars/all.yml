@@ -26,6 +26,11 @@ traefik_ip: "{{ hostvars[traefik_nodes[0]].node_ip }}"
 # The login on admin pages: Authelia, or Keycloak (through oauth2-proxy), or else the Traefik
 # dashboard password. Authelia and Keycloak ask for a second factor (an authenticator app).
 admin_sso: "{{ 'authelia' if 'authelia' in apps else 'keycloak' if 'keycloak' in apps else '' }}"
+# That login in words, for the summary (catalog.yml info: <admin login>).
+admin_login: >-
+  {{ 'Authelia login: user admin, password state/secrets/authelia_admin' if admin_sso == 'authelia'
+  else 'Keycloak login: user admin, password state/secrets/keycloak_sso_admin' if admin_sso == 'keycloak'
+  else 'Traefik login: user admin, password state/secrets/traefik_admin' }}
 # k3s: the tls part of every route. A route's own "tls: {}" would hide the entry point's
 # Let's Encrypt setting, so with letsencrypt each route names it.
 k3s_route_tls: "{{ {'certResolver': 'letsencrypt'} if tls == 'letsencrypt' else {} }}"

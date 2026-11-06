@@ -7,20 +7,21 @@
 #   license:  the app's open-source license
 #   info:     how to reach it, shown at the end of the install
 #   servers:  how many servers it can run on, if more than one (optional), e.g. postgres: [db1, db2]
-#             <ip> = the server it runs on, <domain> = domain in config.yml
+#             <ip> = the server it runs on, <domain> = domain in config.yml,
+#             <admin login> = the login on admin pages (Traefik, Authelia or Keycloak; see admin_login)
 
 traefik:
   category: gateway
   runs_on: swarm
   license: MIT
-  info: "https://traefik.<domain> (user admin, password state/secrets/traefik_admin)"
+  info: "https://traefik.<domain> (<admin login>)"
 
 kong:
   category: api-gateway
   runs_on: swarm
   requires: [postgres, traefik]
   license: Apache-2.0
-  info: "APIs at https://kong.<domain>, Kong Manager https://kong-manager.<domain> (user admin, password state/secrets/traefik_admin)"
+  info: "APIs at https://kong.<domain>, Kong Manager https://kong-manager.<domain> (<admin login>)"
 
 portainer:
   category: management
@@ -101,7 +102,7 @@ nats:
   category: queue
   runs_on: node
   license: Apache-2.0
-  info: "nats://<ip>:4222 (user admin, password state/secrets/nats). Monitoring https://nats.<domain> (needs traefik; Traefik dashboard login)"
+  info: "nats://<ip>:4222 (user admin, password state/secrets/nats). Monitoring https://nats.<domain> (needs traefik; <admin login>)"
 
 uptimekuma:
   category: uptime
@@ -122,8 +123,8 @@ victoria:
   runs_on: node
   requires: [traefik]
   license: Apache-2.0 (VictoriaMetrics, VictoriaLogs, Alertmanager), AGPL-3.0 (Grafana)
-  info: "Grafana https://grafana.<domain> (user admin, password state/secrets/grafana_admin). With the Traefik login:
-    alerts https://alertmanager.<domain>, metrics https://metrics.<domain>/vmui, logs https://logs.<domain>/select/vmui"
+  info: "Grafana https://grafana.<domain> (user admin, password state/secrets/grafana_admin). Alerts
+    https://alertmanager.<domain>, metrics https://metrics.<domain>/vmui, logs https://logs.<domain>/select/vmui (<admin login>)"
 
 openbao:
   category: secrets

@@ -1,0 +1,45 @@
+{#
+  state/handover.json: the facts of this install, for tools that write handover documents (like dejavu).
+  No password or key in here, only the names of the files in state/secrets/.
+#}
+{% set nodes = [] %}
+{% for host in groups['all'] %}
+{%   set _ = nodes.append({
+       'name': host,
+       'ip': hostvars[host].node_ip,
+       'host': hostvars[host].node_host,
+       'role': hostvars[host].node_role,
+       'tier': hostvars[host].node_labels.tier | default(''),
+       'apps': hostvars[host].node_apps,
+     }) %}
+{% endfor %}
+{% set app_list = {} %}
+{% for app, target in apps.items() %}
+{%   set _ = app_list.update({app: {
+       'on': orchestrator if target == 'swarm' else 'server',
+       'nodes': app_nodes[app] | default([]),
+     }}) %}
+{% endfor %}
+{{ {
+  'ansibro_version': lookup('ansible.builtin.file', inventory_dir ~ '/CHANGELOG.md')
+                     | regex_search('^## ([0-9][^\\s]*)', '\\1', multiline=True) | first,
+  'domain': domain,
+  'orchestrator': orchestrator,
+  'tls': tls,
+  'nodes': nodes,
+  'apps': app_list,
+  'traefik_nodes': traefik_nodes,
+  'admin_sso': admin_sso,
+  'database_app': database_app,
+  'database_ha': database_ha | bool,
+  'database_host': database_host,
+  'database_port': database_port | int,
+  'postgres_patroni': postgres_patroni | bool,
+  'mariadb_galera': mariadb_galera | bool,
+  'cache_app': cache_app,
+  'cache_ha': cache_ha | bool,
+  'monitoring_app': monitoring_app,
+  'swarm_app_constraint': swarm_app_constraint,
+  'registry_addr': registry_addr,
+  'secret_files': query('ansible.builtin.fileglob', secrets_dir ~ '/*') | map('basename') | sort,
+} | to_nice_json(indent=2) }}

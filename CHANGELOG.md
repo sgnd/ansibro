@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+Handover facts
+- The installer also writes `state/handover.json`: the servers, the apps and where they run, and the
+  settings the installer worked out (database, cache, Traefik servers, admin login, ...). Tools that
+  write handover documents (like dejavu) read it. It has no passwords, only the names of the files
+  in `state/secrets/`. `tests/test_handover.py` checks this.
+
+Summary fixes
+- `state/summary.md` says how to change each password: some only in the file (the installer sets them
+  every run), some in the app and the file together (the installer logs in with them).
+- "Runs on" names k3s on k3s (not swarm), and every server of an app on more servers.
+- The login shown for the Traefik dashboard, Kong Manager, NATS and the monitoring pages is the
+  Authelia or Keycloak login when one of them is installed (not the Traefik password).
+
 ## 1.3.0
 
 Safer servers

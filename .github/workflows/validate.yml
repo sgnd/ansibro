@@ -30,6 +30,8 @@ jobs:
           .venv/bin/ansible-galaxy collection install -r requirements.yml
       - name: Check config.example.yml and common config mistakes
         run: .venv/bin/python tests/test_config.py
+      - name: Check state/handover.json has the facts and no password
+        run: .venv/bin/python tests/test_handover.py
       - name: Check playbook syntax
         run: PATH="$PWD/.venv/bin:$PATH" ansible-playbook site.yml --syntax-check
       - name: Lint

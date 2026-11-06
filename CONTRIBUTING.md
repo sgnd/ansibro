@@ -56,6 +56,7 @@ that read `SKILL.md`: set up `config.yml`, install, add an app, and update versi
    ./install.sh config.example.yml --syntax-check
    .venv/bin/pip install ansible-lint==26.10.1
    .venv/bin/python tests/test_config.py      # config.example.yml works, mistakes are refused
+   .venv/bin/python tests/test_handover.py    # state/handover.json has no password
    ANSIBRO_CONFIG=config.example.yml PATH="$PWD/.venv/bin:$PATH" ansible-lint --profile production
    shellcheck install.sh build-bundle.sh scripts/*.sh
    scripts/validate-versions.sh               # needs yq, docker and curl

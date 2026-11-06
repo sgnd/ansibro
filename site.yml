@@ -287,13 +287,23 @@
       diff: false  # has passwords
       changed_when: false  # the date in it changes every run
 
+    # For tools that write handover documents (like dejavu). Only facts, no passwords.
+    - name: Save facts to state/handover.json
+      ansible.builtin.template:
+        src: templates/handover.json.j2
+        dest: "{{ playbook_dir }}/state/handover.json"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+
     - name: Show DNS setting
       ansible.builtin.debug:
         msg: "DNS for *.{{ domain }} must point to the public IP of {{ traefik_nodes | join(', ') }}."
 
     - name: Show how to reach each app
       ansible.builtin.debug:
-        msg: "{{ app }}: {{ catalog[app].info | replace('<domain>', domain) | replace('<ip>', hostvars[target].node_ip | default('')) }}"
+        msg: "{{ app }}: {{ catalog[app].info | replace('<domain>', domain) | replace('<ip>', hostvars[target].node_ip | default(''))
+          | replace('<admin login>', admin_login) }}"
       vars:
         app: "{{ item.key }}"
         target: "{{ item.value }}"

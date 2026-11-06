@@ -7,6 +7,7 @@ Where the passwords are, what each app needs, and notes for some apps. The list 
 All addresses, users and passwords are in `state/summary.md`. Each password is also a file in
 `state/secrets/`. (If `state/` is encrypted: `scripts/state.sh open` first, `scripts/state.sh close` after.)
 For developers: the list is in [`catalog.yml`](../catalog.yml).
+`state/handover.json` has the same facts for tools that write handover documents, without the passwords.
 
 ## What each app needs
 
