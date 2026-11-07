@@ -7,8 +7,8 @@
 #   license:  the app's open-source license
 #   info:     how to reach it, shown at the end of the install
 #   servers:  how many servers it can run on, if more than one (optional), e.g. postgres: [db1, db2]
-#             <ip> = the server it runs on, <domain> = domain in config.yml,
-#             <admin login> = the login on admin pages (Traefik, Authelia or Keycloak; see admin_login)
+#   In info: <ip> = the server it runs on, <domain> = domain in config.yml,
+#            <admin login> = the login on admin pages (Traefik, Authelia or Keycloak; see admin_login)
 
 traefik:
   category: gateway
@@ -130,4 +130,4 @@ openbao:
   category: secrets
   runs_on: node
   license: MPL-2.0
-  info: "http://<ip>:8200, https://openbao.<domain> (root token state/secrets/openbao_root_token)"
+  info: "http://<ip>:8200, https://openbao.<domain> (needs traefik) (root token state/secrets/openbao_root_token)"
