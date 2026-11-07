@@ -41,6 +41,7 @@ and run `./install.sh`. Every server then backs up each night with [restic](http
 - every other folder in `/opt/ansibro/`: the app is paused for a moment while its files are copied
 - RustFS and Garage data as it is, while it runs
 - on the first manager: the swarm (your stacks, secrets, configs, networks), `config.yml` and the passwords in `state/secrets/`
+- k3s: the volumes on each server (local-path, in `/var/lib/rancher/k3s/storage`), while they run
 
 Not saved: the image registry (the installer fills it again; push your own images again)
 and Docker volumes. Keep your own stacks' files in `/opt/ansibro/<stack name>/` so they are saved too:
