@@ -13,6 +13,13 @@ apt-get install -y -qq ca-certificates curl python3-venv apt-utils >/dev/null
 echo "- Docker apt repository"
 install -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+# The key must match the sha256 pinned in versions.yml (docker_apt_key_sha256).
+key_sha=$(awk '/^docker_apt_key_sha256:/ {print $2}' /src/versions.yml)
+if ! echo "$key_sha  /etc/apt/keyrings/docker.asc" | sha256sum -c --quiet -; then
+  echo "error: Docker's apt key does not match docker_apt_key_sha256 in versions.yml." >&2
+  echo "Check https://docs.docker.com/engine/install/ubuntu/ for a new key before you change the pin." >&2
+  exit 1
+fi
 echo "deb [signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $VERSION_CODENAME stable" \
   > /etc/apt/sources.list.d/docker.list
 apt-get update -qq

@@ -65,4 +65,12 @@ that read `SKILL.md`: set up `config.yml`, install, add an app, and update versi
 3. Open the pull request. GitHub runs the same checks (see [`validate.yml`](.github/workflows/validate.yml)).
    They must pass before it can be merged.
 
+## Make a release (maintainer)
+
+1. In [CHANGELOG.md](CHANGELOG.md), rename `## Unreleased` to `## X.Y.Z`. The release workflow uses that
+   section as the release notes, and stops if it is missing.
+2. Change `--branch vX.Y.Z` in the quick start of [README.md](README.md) and
+   [docs/getting-started.md](docs/getting-started.md) to the new tag.
+3. Merge, then push the tag `vX.Y.Z`. GitHub builds the offline bundles and publishes the release.
+
 This project follows the [Code of Conduct](CODE_OF_CONDUCT.md).

@@ -7,6 +7,11 @@ ubuntu_images:
   "24.04": sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
   "26.04": sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c
 
+# Docker's apt signing key (https://download.docker.com/linux/ubuntu/gpg), pinned by sha256, so a
+# changed or swapped key stops the install. Key fingerprint 9DC8 5822 9FC7 DD38 854A E2D8 8D81 803C 0EBF CD88
+# (as published by Docker). scripts/validate-versions.sh checks that the file Docker serves still matches.
+docker_apt_key_sha256: 1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570
+
 # apt "package=version". The * matches the Ubuntu release suffix, e.g. ~ubuntu.24.04~noble.
 docker_packages:
   - docker-ce=5:29.9.2-1*

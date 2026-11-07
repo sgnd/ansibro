@@ -55,7 +55,7 @@ Two things used everywhere in these docs:
 First time? Follow [Getting started](docs/getting-started.md) instead. It shows every step.
 
 ```bash
-git clone https://github.com/sgnd/ansibro.git
+git clone --branch v1.3.0 https://github.com/sgnd/ansibro.git   # the latest release
 cd ansibro
 cp examples/swarm-1-server.yml config.yml   # or another ready-to-use config, see below
 ./install.sh
