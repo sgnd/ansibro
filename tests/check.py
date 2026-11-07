@@ -24,6 +24,8 @@ import subprocess
 import sys
 import time
 
+import yaml
+
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 if len(sys.argv) > 1:
@@ -31,9 +33,11 @@ if len(sys.argv) > 1:
 os.environ.setdefault("ANSIBRO_CONFIG", "config.yml")
 
 # state/ (the passwords) may be kept encrypted: open it like install.sh does, and close it at the end.
+# Only when it is closed now: if you (or install.sh) opened it, it stays open.
 STATE_SH = os.path.join(HERE, "scripts", "state.sh")
-subprocess.run([STATE_SH, "open"], check=True)
-atexit.register(subprocess.run, [STATE_SH, "close"], check=True)
+if os.path.exists(os.path.join(HERE, "state.age")):
+    subprocess.run([STATE_SH, "open"], check=True)
+    atexit.register(subprocess.run, [STATE_SH, "close"], check=True)
 
 import inventory  # noqa: E402
 
@@ -485,8 +489,13 @@ def check_uptimekuma():
     check(f"uptime kuma has its monitors ({len(monitors)})", len(monitors) >= 2, str(len(monitors)))
     down = [line.split('monitor_name="')[1].split('"')[0] for line in monitors if not line.endswith(" 1")]
     # The monitor of a removed app stays (after the first install the monitors are yours): skip it.
-    removed = [app for app in CFG["catalog"] if app not in APPS]
-    down = [name for name in down if name.split(" ")[0] not in removed]
+    # Monitor names come from roles/uptimekuma (monitors.json.j2): "<page host> web page".
+    with open(os.path.join(HERE, "roles", "uptimekuma", "defaults", "main.yml")) as f:
+        pages = yaml.safe_load(f)["uptimekuma_pages"]
+    removed = [f"{page['host']} web page" for app, page in pages.items() if app not in APPS]
+    if not any(app in APPS for app in inventory.MONITORING_APPS):
+        removed.append("Monitoring server (its Watchdog alert)")
+    down = [name for name in down if name not in removed]
     if monitors:
         check("uptime kuma monitors are up", not down, ", ".join(down))
 
