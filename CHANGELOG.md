@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+Follow-ups from a code review of the fixes below
+- A failed install no longer leaves alerts muted: `install.sh` ends the mute right away
+  (`unmute.yml`). Before, alerts stayed muted for up to 1 hour.
+- PostgreSQL with Patroni: only a server whose PostgreSQL left the cluster gets a new copy; one that
+  crashed or was stopped by hand keeps its data. A leaving server gets 60 seconds to hand the primary over.
+- k3s restore on one server no longer fails (there are no other node passwords to forget).
+- Backup: a repository error other than "already there" (wrong address or keys) stops at once.
+
 Python on a Mac
 - `./install.sh` finds Python 3.12 to 3.14 also when `python3` is Apple's old 3.9 (or a too new
   3.15, which breaks Ansible 2.21): it tries `python3`, `python3.14`, `python3.13` and `python3.12`
