@@ -132,6 +132,7 @@ Tested on DigitalOcean, two clusters with WireGuard, `ssh.allow_from` and `admin
 Tested on DigitalOcean for 1.3.0, each with a second run at `changed=0` and `tests/check.py` passing:
 - Ubuntu 24.04 and 26.04: swarm-1-server (real Let's Encrypt), swarm-2-servers (labels, timezone),
   swarm-3-servers (Authelia, victoria with a webhook), k3s-4-servers.
+- swarm-ha (26.04): install, `changed=0`, `tests/check.py`, `admin_allow_from`, a new S3 bucket for backups.
 - swarm-ha (24.04): the installer on a separate machine, S3 backup and encrypted `state/`, Patroni and
   Redis failover, an app upgrade. With WireGuard: a Docker update one server at a time (and back), the
   stop when two servers swap roles, removing a manager and a worker and adding two new ones (with the
@@ -149,9 +150,6 @@ Tested on DigitalOcean for 1.3.0, each with a second run at `changed=0` and `tes
 - Offline (bundle built on a server, no internet): Swarm and k3s on Ubuntu 24.04 and 26.04, with
   `tls: selfsigned`, `admin_allow_from`, and backup to a folder and to a rest-server.
 - `acme_server` with Let's Encrypt staging (26.04).
-
-Not tested yet:
-- swarm-ha on Ubuntu 26.04
 
 ## 1.2.0
 
