@@ -104,6 +104,12 @@ Tested on DigitalOcean, two clusters with WireGuard, `ssh.allow_from` and `admin
   until the next install unattended-upgrades could change Docker.
 - Offline: Ubuntu's daily firmware check (`fwupd-refresh`) is turned off; without internet it failed
   every day and fired `SystemdServiceFailed`.
+- **k3s restore on new servers works.** The new servers were refused ("Node password rejected": the
+  snapshot had the old servers' node passwords), and k3s volumes (local-path, with Traefik's
+  certificates) were not in the backup, so Traefik and apps with a volume could not start. Now the old
+  node passwords are forgotten, and each server's volumes are saved (while they run).
+- **Backup with a new S3 bucket on Ubuntu 26.04 waited 15 minutes.** restic 0.17 and newer try a missing
+  bucket again for that long, before it could be made. The installer now creates the repository first.
 - The config check stops on an S3 bucket name restic cannot use (before, the install waited for many
   minutes while restic tried again).
 - Alerts are muted while the installer runs (except `Watchdog`): a first install no longer sends
@@ -124,8 +130,9 @@ Tested on DigitalOcean for 1.3.0, each with a second run at `changed=0` and `tes
   stop when two servers swap roles, removing a manager and a worker and adding two new ones (with the
   etcd steps from the docs), a Patroni server that leaves and joins again (as a replica and as the
   primary), a backup to a rest-server and a restore on 9 new servers (the PostgreSQL data is back on all 3).
-- k3s-ha (24.04): Galera with a first install stopped half way and run again (3 servers in sync),
-  Redis with Sentinel, Garage, victoria, Uptime Kuma, S3 backup.
+- k3s-ha (24.04 and 26.04): Galera with a first install stopped half way and run again (3 servers in
+  sync), Redis with Sentinel, Garage, victoria, Uptime Kuma, S3 backup, and a restore on new servers
+  (the MariaDB data is back on all 3 servers, Traefik keeps its certificates).
 - k3s `admin_allow_from`: an upgrade from 1.3.0 and new installs (Let's Encrypt with one Traefik, and
   self-signed with a Traefik on each worker): an IP outside the list gets 403, an allowed one gets in.
 - Swarm variant (24.04 and 26.04): Kong, Swarmpit, Keycloak, Valkey with Sentinel, NATS, OpenBao, RustFS,
@@ -137,8 +144,7 @@ Tested on DigitalOcean for 1.3.0, each with a second run at `changed=0` and `tes
 - `acme_server` with Let's Encrypt staging (26.04).
 
 Not tested yet:
-- k3s backup and restore on new servers
-- On Ubuntu 26.04: swarm-ha and k3s-ha
+- swarm-ha on Ubuntu 26.04
 
 ## 1.2.0
 
