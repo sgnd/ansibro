@@ -155,7 +155,7 @@ Tested on DigitalOcean for 1.3.0, each with a second run at `changed=0` and `tes
 - k3s-ha (24.04 and 26.04): Galera with a first install stopped half way and run again (3 servers in
   sync), Redis with Sentinel, Garage, victoria, Uptime Kuma, S3 backup, and a restore on new servers
   (the MariaDB data is back on all 3 servers, Traefik keeps its certificates).
-- k3s `admin_allow_from`: an upgrade from 1.2.0 and new installs (Let's Encrypt with one Traefik, and
+- k3s `admin_allow_from`: an upgrade from 1.3.0 and new installs (Let's Encrypt with one Traefik, and
   self-signed with a Traefik on each worker): an IP outside the list gets 403, an allowed one gets in.
 - Swarm variant (24.04 and 26.04): Kong, Swarmpit, Keycloak, Valkey with Sentinel, NATS, OpenBao, RustFS,
   Uptime Kuma, `tls: selfsigned`, `ssh.port`, `firewall_allow`, WireGuard, removing an app.

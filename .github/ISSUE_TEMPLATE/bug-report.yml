@@ -15,7 +15,7 @@ body:
     attributes:
       label: Ansibro version
       description: The release, or the commit (`git rev-parse --short HEAD`)
-      placeholder: v1.2.0
+      placeholder: v1.3.0
     validations:
       required: true
   - type: dropdown
