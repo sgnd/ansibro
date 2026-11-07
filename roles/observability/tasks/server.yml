@@ -105,21 +105,9 @@
 # later), so alerts like NodeDown would fire for nothing. Mute every alert except Watchdog
 # (the heartbeat) for at most 1 hour. The last play in site.yml ends the mute soon after the install.
 - name: Mute alerts while the installer runs
-  ansible.builtin.uri:
-    url: "http://{{ node_ip }}:{{ observability_alertmanager_port }}/api/v2/silences"
-    method: POST
-    body_format: json
-    body:
-      matchers: [{ name: alertname, value: Watchdog, isRegex: false, isEqual: false }]
-      startsAt: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(now().timestamp(), utc=true) }}"
-      endsAt: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(now().timestamp() + 3600, utc=true) }}"
-      createdBy: ansibro
-      comment: The installer is running. Ends by itself.
-  register: observability_mute
-  until: observability_mute.status == 200  # Alertmanager may still be starting
-  retries: 30
-  delay: 2
-  changed_when: false
+  ansible.builtin.include_tasks: mute.yml
+  vars:
+    observability_mute_seconds: 3600
 
 - name: Add Grafana to Traefik
   ansible.builtin.include_role:

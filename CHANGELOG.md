@@ -1,6 +1,17 @@
 # Changelog
 
-## Unreleased
+## 1.3.0 (not released yet)
+
+Not released yet: there is no v1.3.0 tag or GitHub release. Until there is, the newest release
+is 1.2.0. This section holds everything since 1.2.0.
+
+Follow-ups from a code review of the fixes below
+- A failed install no longer leaves alerts muted: `install.sh` ends the mute right away
+  (`unmute.yml`). Before, alerts stayed muted for up to 1 hour.
+- PostgreSQL with Patroni: only a server whose PostgreSQL left the cluster gets a new copy; one that
+  crashed or was stopped by hand keeps its data. A leaving server gets 60 seconds to hand the primary over.
+- k3s restore on one server no longer fails (there are no other node passwords to forget).
+- Backup: a repository error other than "already there" (wrong address or keys) stops at once.
 
 Python on a Mac
 - `./install.sh` finds Python 3.12 to 3.14 also when `python3` is Apple's old 3.9 (or a too new
@@ -22,10 +33,6 @@ Summary fixes
 - "Runs on" names k3s on k3s (not swarm), and every server of an app on more servers.
 - The login shown for the Traefik dashboard, Kong Manager, NATS and the monitoring pages is the
   Authelia or Keycloak login when one of them is installed (not the Traefik password).
-
-## 1.3.0
-
-Not released yet: there is no v1.3.0 tag or GitHub release. Until there is, the newest release is 1.2.0.
 
 Safer servers
 - SSH accepts only keys (no passwords), also for root.

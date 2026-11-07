@@ -1,0 +1,21 @@
+# Mute every alert except Watchdog (the heartbeat) for observability_mute_seconds.
+# Used by server.yml (mute while the installer runs) and by the last play in site.yml (end it soon).
+# With an earlier mute (observability_mute), Alertmanager changes that one instead of adding one.
+- name: "Mute alerts, for seconds: {{ observability_mute_seconds }}"
+  ansible.builtin.uri:
+    url: "http://{{ node_ip }}:{{ observability_alertmanager_port }}/api/v2/silences"
+    method: POST
+    body_format: json
+    body: >-
+      {{ {
+        'matchers': [{'name': 'alertname', 'value': 'Watchdog', 'isRegex': false, 'isEqual': false}],
+        'startsAt': '%Y-%m-%dT%H:%M:%SZ' | strftime(now().timestamp(), utc=true),
+        'endsAt': '%Y-%m-%dT%H:%M:%SZ' | strftime(now().timestamp() + observability_mute_seconds | int, utc=true),
+        'createdBy': 'ansibro',
+        'comment': 'The installer is running, or just finished. Ends by itself.',
+      } | combine({'id': observability_mute.json.silenceID} if observability_mute.json is defined else {}) }}
+  register: observability_mute
+  until: observability_mute.status == 200  # Alertmanager may still be starting
+  retries: 30
+  delay: 2
+  changed_when: false

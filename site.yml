@@ -333,18 +333,12 @@
 # because something was not up yet are resolved and are not sent.
 - name: Unmute alerts
   hosts: all
+  gather_facts: false
   tasks:
     - name: End the mute in 3 minutes
-      ansible.builtin.uri:
-        url: "http://{{ node_ip }}:{{ observability_alertmanager_port | default(9093) }}/api/v2/silences"
-        method: POST
-        body_format: json
-        body:
-          id: "{{ observability_mute.json.silenceID }}"
-          matchers: [{ name: alertname, value: Watchdog, isRegex: false, isEqual: false }]
-          startsAt: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(now().timestamp(), utc=true) }}"
-          endsAt: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(now().timestamp() + 180, utc=true) }}"
-          createdBy: ansibro
-          comment: The installer is done. Ends in 3 minutes.
-      changed_when: false
+      ansible.builtin.include_role:
+        name: observability
+        tasks_from: mute
+      vars:
+        observability_mute_seconds: 180
       when: monitoring_app != '' and inventory_hostname == apps[monitoring_app] and observability_mute.json is defined
