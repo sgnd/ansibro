@@ -484,6 +484,9 @@ def check_uptimekuma():
     monitors = [line for line in body.splitlines() if line.startswith("monitor_status{")]
     check(f"uptime kuma has its monitors ({len(monitors)})", len(monitors) >= 2, str(len(monitors)))
     down = [line.split('monitor_name="')[1].split('"')[0] for line in monitors if not line.endswith(" 1")]
+    # The monitor of a removed app stays (after the first install the monitors are yours): skip it.
+    removed = [app for app in CFG["catalog"] if app not in APPS]
+    down = [name for name in down if name.split(" ")[0] not in removed]
     if monitors:
         check("uptime kuma monitors are up", not down, ", ".join(down))
 

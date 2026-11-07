@@ -126,7 +126,8 @@ If it is gone, the monitoring is broken:
 Remove it from `config.yml` and run `./install.sh`. The installer stops it
 (and its agents, Traefik page and timer). Its data stays in `/opt/ansibro/<app>` on its server:
 `sudo rm -rf /opt/ansibro/<app>` if you do not need it. Not removed by itself: the app's database
-(drop it in Postgres or MariaDB) and its old images in the registry.
+(drop it in Postgres or MariaDB), its old images in the registry, and its Uptime Kuma monitor
+(delete it in Uptime Kuma's web page).
 
 ## Remove a server
 
