@@ -53,13 +53,17 @@ find_python() {
 }
 
 # install_python installs Python 3.13 on a Mac, with a tool that needs no sudo:
-# Homebrew if it is there, else uv, else mise. Then it looks again.
+# Homebrew if it is there (also when this shell's PATH lacks it), else uv, else mise. Then it looks again.
 install_python() {
-  local try
+  local try brew
   [ "$(uname -s)" = Darwin ] || return 1
-  if command -v brew >/dev/null; then
+  brew=$(command -v brew || true)
+  for try in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+    if [ -z "$brew" ] && [ -x "$try" ]; then brew=$try; fi
+  done
+  if [ -n "$brew" ]; then
     echo "Python 3.12 to 3.14 not found. Installing it: brew install python@3.13"
-    brew install python@3.13 || return 1
+    "$brew" install python@3.13 || return 1
   elif command -v uv >/dev/null; then
     echo "Python 3.12 to 3.14 not found. Installing it: uv python install 3.13"
     uv python install 3.13 || return 1
