@@ -107,7 +107,7 @@ server's pages (metrics, logs, Alertmanager), etcd for Patroni, and Patroni's AP
 | `roles/` | One folder per step or app, with its tasks and files. |
 | `catalog.yml` | All apps: category, where they run, license, how to reach them. |
 | `versions.yml` | Every pinned version: images, packages, k3s. |
-| `group_vars/`, `templates/`, `ansible.cfg` | Settings shared by all steps, the summary template, Ansible's settings. |
+| `group_vars/`, `templates/`, `ansible.cfg` | Settings shared by all steps, the summary and `state/handover.json` templates, Ansible's settings. |
 | `requirements.txt`, `requirements.yml` | The Python packages (Ansible) and Ansible add-ons the installer downloads. |
 | `build-bundle.sh` | Builds an offline bundle. |
 | `scripts/` | Small helpers: open and close `state/`, check versions, scan images. |

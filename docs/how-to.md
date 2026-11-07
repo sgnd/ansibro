@@ -104,8 +104,10 @@ The rules are in [`roles/observability/files/alerts.yml`](../roles/observability
 Grafana has an "Ansibro overview" dashboard. Logs: `https://logs.<domain>/select/vmui`.
 
 While the installer runs, alerts are muted (except `Watchdog`): servers and apps that are not up yet
-would fire alerts for nothing. The mute ends 3 minutes after the install, or after 1 hour if the
-install stops half way. You see it in Alertmanager as a silence by `ansibro`.
+would fire alerts for nothing. The mute ends 3 minutes after the install. When the install fails,
+`install.sh` ends it right away; if you stopped it yourself (Ctrl-C), run
+`.venv/bin/ansible-playbook unmute.yml`, or it ends after 1 hour. You see it in Alertmanager as a
+silence by `ansibro`.
 
 ## Who watches the monitoring?
 

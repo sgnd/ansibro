@@ -1,4 +1,6 @@
-# k3s (a small Kubernetes), highly available: any one server can stop and everything keeps working.
+# k3s (a small Kubernetes), highly available: any one server can stop and the apps and data keep working.
+# With tls: letsencrypt (below), Traefik runs on worker1 only and Authelia and Portainer on master1,
+# so the web pages need worker1 and the admin login needs master1.
 #   master1-3   k3s servers: only run the cluster (labelled tier=control)
 #   worker1-3   k3s agents: Traefik (the gateway) and your apps (labelled tier=app; add more when needed)
 #   data1-3     not in the cluster: MariaDB with Galera, Redis with Sentinel, Garage with 3 copies

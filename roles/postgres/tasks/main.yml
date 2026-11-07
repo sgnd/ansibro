@@ -75,14 +75,16 @@
     mode: "0600"
 
 # Patroni: a server that joins the cluster again may have an old copy of the data. It can differ
-# from the primary's, and then it cannot follow the primary. So when PostgreSQL does not run here
+# from the primary's, and then it cannot follow the primary. So when PostgreSQL left this server
 # but another server is the primary, keep the old copy aside (data/pgroot.old) and let Patroni
 # make a new copy from the primary.
 - name: Join the PostgreSQL cluster again with a new copy
   when: postgres_patroni
   block:
     - name: Look for old PostgreSQL data that is not running
-      ansible.builtin.shell: test -d {{ postgres_dir }}/data/pgroot && test -z "$(docker ps -q --filter name=^postgres$)"
+      # No container at all (not even stopped): it left the cluster before (cleanup removes it).
+      # A container that crashed or was stopped by hand keeps its data.
+      ansible.builtin.shell: test -d {{ postgres_dir }}/data/pgroot && test -z "$(docker ps -aq --filter name=^postgres$)"
       register: postgres_old_copy
       failed_when: false
       changed_when: false

@@ -9,7 +9,7 @@
 
 - name: Stop PostgreSQL that left the cluster
   ansible.builtin.command:
-    cmd: docker compose down
+    cmd: docker compose down -t 60  # time for Patroni to hand the primary over
     chdir: "{{ apps_dir }}/postgres"
   register: cleanup_patroni_down
   changed_when: "'No resource found to remove' not in cleanup_patroni_down.stderr"

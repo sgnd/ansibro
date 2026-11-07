@@ -101,8 +101,11 @@
 - name: Forget the node passwords of the old servers
   ansible.builtin.shell: |
     set -o pipefail
-    k3s kubectl -n kube-system get secrets -o name | grep '\.node-password\.k3s$' \
-      | grep -v '/{{ swarm_leader }}\.node-password\.k3s$' | xargs -r k3s kubectl -n kube-system delete
+    # (grep finds nothing on a 1-server cluster: that is fine, so "|| true".)
+    k3s kubectl -n kube-system get secrets -o name \
+      | { grep '\.node-password\.k3s$' || true; } \
+      | { grep -v '/{{ swarm_leader }}\.node-password\.k3s$' || true; } \
+      | xargs -r k3s kubectl -n kube-system delete
   args:
     executable: /bin/bash
   when: restore | bool and inventory_hostname == swarm_leader and k3s_snapshot.files | length > 0

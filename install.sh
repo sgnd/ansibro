@@ -173,4 +173,16 @@ if [ "${check[*]}" = "--list --ready" ]; then
   chmod 700 state
 fi
 
-ansible-playbook site.yml "$@"
+# A failed install would leave alerts muted (for up to 1 hour): end the mute, then stop with the error.
+status=0
+ansible-playbook site.yml "$@" || status=$?
+if [ "$status" -ne 0 ]; then
+  case " $* " in
+    *" --syntax-check "* | *" --check "* | *" --list-"*) ;;  # nothing was installed
+    *)
+      echo "The install failed. Ending the alert mute, so alerts are sent again." >&2
+      ansible-playbook unmute.yml || true
+      ;;
+  esac
+  exit "$status"
+fi

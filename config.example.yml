@@ -83,7 +83,7 @@ wireguard: false
 #         standalone not in the swarm, runs server apps like databases
 #   labels: optional tags for your own swarm placement rules, e.g. node.labels.tier == app.
 #           The installer only adds labels; remove old ones by hand (sudo docker node update --label-rm <key> <node>).
-#           You can leave labels out. (Swarm servers get tier=data or tier=app by themselves.)
+#           You can leave labels out. (Cluster servers get a tier by themselves: data, app, gateway or control; see docs/how-it-works.md.)
 nodes:
   - name: swarm1
     ip: 10.0.0.11

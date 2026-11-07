@@ -1,4 +1,6 @@
-# Docker Swarm, highly available: any one server can stop and everything keeps working.
+# Docker Swarm, highly available: any one server can stop and the apps and data keep working.
+# With tls: letsencrypt (below), Traefik, Authelia and Portainer run on manager1 only, so the web
+# pages and the admin login need manager1. With your own certificate, Traefik runs on every manager.
 #   manager1-3  swarm managers: Traefik (the gateway). Portainer and Authelia keep their data on manager1.
 #   worker1-3   swarm workers: your apps (labelled tier=app; add more workers when you need them)
 #   data1-3     not in the swarm: PostgreSQL with automatic failover (Patroni), Redis with Sentinel,

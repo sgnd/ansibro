@@ -35,7 +35,15 @@
 # there. (restic 0.17 and newer try a missing S3 bucket again for 15 minutes, so "cat config" first
 # could wait that long.)
 - name: Create the backup repository if it is not there
-  ansible.builtin.shell: set -a && . {{ backup_dir }}/restic.env && (restic init 2>&1 || restic cat config >/dev/null)
+  # Only "already there" is fine: any other error (address, keys) stops here at once.
+  ansible.builtin.shell: |
+    set -a && . {{ backup_dir }}/restic.env && set +a
+    out=$(restic init 2>&1) && echo "$out" && exit 0
+    echo "$out"
+    case "$out" in
+      *already*) restic cat config >/dev/null ;;
+      *) exit 1 ;;
+    esac
   register: backup_repo
   changed_when: "'created restic repository' in backup_repo.stdout"
   throttle: 1

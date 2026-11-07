@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+Release readiness
+- `./install.sh --help` prints the usage. A missing config file names the file you gave and points
+  to `examples/` (not always `config.yml`).
+- A real run makes `state/` readable by you only (0700) before Ansible starts, not only at the end.
+  A restore's database dump goes into `state/` for a while.
+- `config.yml` values that end in a new line (domain, node name, label, backup time, URLs, smarthost)
+  are refused, like other bad values.
+- New in [docs/how-to.md](docs/how-to.md): how to upgrade Ansibro itself, and how to start over.
+  [docs/k3s.md](docs/k3s.md): `kubectl` from a laptop needs an SSH tunnel or a `firewall_allow` rule
+  for port 6443.
+- Releases: the release workflow checks that `CHANGELOG.md` has the tag's section and that the config
+  tests pass before it publishes, and uses that section as the release notes.
+
+## 1.3.0
+
+Follow-ups from a code review of the fixes below
+- A failed install no longer leaves alerts muted: `install.sh` ends the mute right away
+  (`unmute.yml`). Before, alerts stayed muted for up to 1 hour.
+- PostgreSQL with Patroni: only a server whose PostgreSQL left the cluster gets a new copy; one that
+  crashed or was stopped by hand keeps its data. A leaving server gets 60 seconds to hand the primary over.
+- k3s restore on one server no longer fails (there are no other node passwords to forget).
+- Backup: a repository error other than "already there" (wrong address or keys) stops at once.
+
 Python on a Mac
 - `./install.sh` finds Python 3.12 to 3.14 also when `python3` is Apple's old 3.9 (or a too new
   3.15, which breaks Ansible 2.21): it tries `python3`, `python3.14`, `python3.13` and `python3.12`
@@ -22,21 +45,6 @@ Summary fixes
 - "Runs on" names k3s on k3s (not swarm), and every server of an app on more servers.
 - The login shown for the Traefik dashboard, Kong Manager, NATS and the monitoring pages is the
   Authelia or Keycloak login when one of them is installed (not the Traefik password).
-
-Release readiness
-- `./install.sh --help` prints the usage. A missing config file names the file you gave and points
-  to `examples/` (not always `config.yml`).
-- A real run makes `state/` readable by you only (0700) before Ansible starts, not only at the end.
-  A restore's database dump goes into `state/` for a while.
-- `config.yml` values that end in a new line (domain, node name, label, backup time, URLs, smarthost)
-  are refused, like other bad values.
-- New in [docs/how-to.md](docs/how-to.md): how to upgrade Ansibro itself, and how to start over.
-  [docs/k3s.md](docs/k3s.md): `kubectl` from a laptop needs an SSH tunnel or a `firewall_allow` rule
-  for port 6443.
-- Releases: the release workflow checks that `CHANGELOG.md` has the tag's section and that the config
-  tests pass before it publishes, and uses that section as the release notes.
-
-## 1.3.0
 
 Safer servers
 - SSH accepts only keys (no passwords), also for root.
