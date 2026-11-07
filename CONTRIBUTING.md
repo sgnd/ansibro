@@ -8,7 +8,7 @@ a beginner must be able to read every file. Use simple English.
 - Simple and easy to read. A beginner should be able to change it. Simple English.
 - Open-source apps only. At most two choices per category, the popular one first.
 - Pin every version. No `latest`.
-- Databases, caches, storage, queues and monitoring run on one server with Docker Compose.
+- Databases, caches, storage, queues and monitoring are server apps (`runs_on: node`): Docker Compose on the servers you name (some on more than one), not swarm services.
 
 ## Suggest an app
 

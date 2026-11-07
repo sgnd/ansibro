@@ -11,7 +11,7 @@ For developers: the list is in [`catalog.yml`](../catalog.yml).
 
 ## What each app needs
 
-- Every app with a web page needs traefik. (rabbitmq, nats and rustfs work without it, but then have no web page.)
+- Every app with a web page needs traefik. (rabbitmq, nats, rustfs and openbao work without it, but then have no web page.)
 - kong needs postgres. keycloak needs a database. authelia needs a database and a cache.
   The installer creates their databases for them.
 

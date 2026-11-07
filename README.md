@@ -69,9 +69,9 @@ cp examples/swarm-1-server.yml config.yml   # or another ready-to-use config, se
 | [`swarm-1-server.yml`](examples/swarm-1-server.yml) | 1 | everything on one server |
 | [`swarm-2-servers.yml`](examples/swarm-2-servers.yml) | 2 | manager (gateway + apps), data server |
 | [`swarm-3-servers.yml`](examples/swarm-3-servers.yml) | 3 | manager (gateway), worker (apps), data server |
-| [`swarm-ha.yml`](examples/swarm-ha.yml) | 9 | 3 managers (gateway), 3 workers (apps), 3 data servers; any one can stop |
+| [`swarm-ha.yml`](examples/swarm-ha.yml) | 9 | 3 managers (gateway), 3 workers (apps), 3 data servers; apps and data keep running when one server stops (with Let's Encrypt, the web pages and the admin login need manager1) |
 | [`k3s-4-servers.yml`](examples/k3s-4-servers.yml) | 4 | k3s: master, 2 workers (gateway + apps), data server |
-| [`k3s-ha.yml`](examples/k3s-ha.yml) | 9 | k3s: 3 masters, 3 workers (gateway + apps), 3 data servers; any one can stop |
+| [`k3s-ha.yml`](examples/k3s-ha.yml) | 9 | k3s: 3 masters, 3 workers (gateway + apps), 3 data servers; apps and data keep running when one server stops (with Let's Encrypt, the web pages need worker1 and the admin login needs master1) |
 
 Data servers keep the databases, cache, storage and monitoring, outside the cluster.
 [`config.example.yml`](config.example.yml) explains every setting.
