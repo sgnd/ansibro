@@ -1,0 +1,26 @@
+# Ends the installer's mute of alerts now. install.sh runs it when site.yml fails, so alerts are
+# sent again right away (a good install ends the mute itself: the last play in site.yml).
+# Run it by hand too: .venv/bin/ansible-playbook unmute.yml
+- name: Unmute alerts
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: End the installer's mute on the monitoring server
+      when: monitoring_app != '' and inventory_hostname == apps[monitoring_app]
+      block:
+        - name: List the silences
+          ansible.builtin.uri:
+            url: "http://{{ node_ip }}:{{ observability_alertmanager_port | default(9093) }}/api/v2/silences"
+          register: unmute_silences
+          failed_when: false  # Alertmanager may not run yet: then nothing is muted
+
+        - name: End the silences the installer made
+          ansible.builtin.uri:
+            url: "http://{{ node_ip }}:{{ observability_alertmanager_port | default(9093) }}/api/v2/silence/{{ item.id }}"
+            method: DELETE
+          loop: >-
+            {{ unmute_silences.json | default([]) | selectattr('createdBy', 'equalto', 'ansibro')
+            | selectattr('status.state', 'equalto', 'active') | list }}
+          loop_control:
+            label: "{{ item.id }}"
+          changed_when: true
