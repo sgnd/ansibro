@@ -1,6 +1,9 @@
 # Keycloak as the login for the admin pages (when Authelia is not installed): realm "ansibro",
 # the client for oauth2-proxy, and the user "admin" who must set up an authenticator app (OTP)
 # at the first login. Uses Keycloak's admin API through Traefik (traefik_ip).
+# validate_certs is off: the URL is Traefik's IP (with the Host header), so the certificate's name
+# cannot match it, and with tls: selfsigned there is no CA to check against. The calls run on a server
+# and go to another server's ip (the servers' own network, or WireGuard).
 
 - name: Wait for Keycloak
   ansible.builtin.uri:
