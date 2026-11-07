@@ -86,7 +86,8 @@
     ip6tables-save | grep -v KUBE- | grep -v CNI- | grep -iv flannel | ip6tables-restore
   args:
     executable: /bin/bash
-  delegate_to: "{{ item.stdout }}"
+  # (Ansible reads delegate_to even for an item that "when" skips, like all items on Swarm.)
+  delegate_to: "{{ item.stdout | default('', true) or inventory_hostname }}"
   vars:  # (delegate_to gives the address; these vars cannot use item)
     ansible_user: "{{ hostvars[inventory_hostname].ansible_user }}"
     ansible_port: "{{ hostvars[inventory_hostname].ansible_port }}"

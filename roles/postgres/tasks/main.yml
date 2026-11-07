@@ -74,6 +74,39 @@
     dest: "{{ postgres_dir }}/compose.yml"
     mode: "0600"
 
+# Patroni: a server that joins the cluster again may have an old copy of the data. It can differ
+# from the primary's, and then it cannot follow the primary. So when PostgreSQL does not run here
+# but another server is the primary, keep the old copy aside (data/pgroot.old) and let Patroni
+# make a new copy from the primary.
+- name: Join the PostgreSQL cluster again with a new copy
+  when: postgres_patroni
+  block:
+    - name: Look for old PostgreSQL data that is not running
+      ansible.builtin.shell: test -d {{ postgres_dir }}/data/pgroot && test -z "$(docker ps -q --filter name=^postgres$)"
+      register: postgres_old_copy
+      failed_when: false
+      changed_when: false
+
+    - name: Ask the other servers for the primary
+      ansible.builtin.uri:
+        url: "http://{{ hostvars[item].node_ip }}:8008/cluster"
+        timeout: 5
+      loop: "{{ app_nodes.postgres | difference([inventory_hostname]) }}"
+      register: postgres_others
+      failed_when: false
+      when: postgres_old_copy.rc == 0
+
+    - name: Keep the old copy aside
+      ansible.builtin.shell: rm -rf data/pgroot.old && mv data/pgroot data/pgroot.old  # only the newest old copy
+      args:
+        chdir: "{{ postgres_dir }}"
+      when: >-
+        postgres_old_copy.rc == 0
+        and postgres_others.results | map(attribute='json', default={}) | map(attribute='members', default=[])
+        | flatten | selectattr('role', 'equalto', 'leader') | selectattr('state', 'equalto', 'running')
+        | rejectattr('name', 'equalto', inventory_hostname) | list | length > 0
+      changed_when: true
+
 - name: Start PostgreSQL
   ansible.builtin.include_role:
     name: docker

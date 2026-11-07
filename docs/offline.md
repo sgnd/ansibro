@@ -46,6 +46,11 @@ Notes:
 - Every server must run the bundle's Ubuntu version.
 - Let's Encrypt needs internet. Use `tls: selfsigned`, `tls: custom`, or an ACME server
   in your network (`acme_server`, see `config.example.yml`).
-- Time sync (chrony) needs a time server. Without internet, use one in your network: on each server
-  put `server <time server ip> iburst` in `/etc/chrony/sources.d/local.sources`, then run
-  `sudo chronyc reload sources`.
+- Time sync (chrony) needs a time server. Without internet, use one in your network. On each server:
+
+  ```bash
+  echo "server <time server ip> iburst" | sudo tee /etc/chrony/sources.d/local.sources
+  # Ubuntu 26.04 only uses signed (NTS) time servers while it has them; allow your own one too:
+  echo "authselectmode ignore" | sudo tee /etc/chrony/conf.d/offline.conf
+  sudo systemctl restart chrony
+  ```

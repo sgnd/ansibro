@@ -22,7 +22,9 @@
       + ([] if monitoring_app else ['monitoring-agent'])
       + ([] if inventory_hostname in groups['managers'] else ['registry'])
       + ([] if postgres_patroni and inventory_hostname in groups['managers'] else ['etcd']) }}
-  changed_when: true
+  register: cleanup_down
+  # The compose file stays (with the data), so this runs on every install: changed only when it stopped something.
+  changed_when: "'No resource found to remove' not in cleanup_down.stderr"
 
 - name: Look for timers of removed features
   ansible.builtin.stat:

@@ -41,6 +41,7 @@ and run `./install.sh`. Every server then backs up each night with [restic](http
 - every other folder in `/opt/ansibro/`: the app is paused for a moment while its files are copied
 - RustFS and Garage data as it is, while it runs
 - on the first manager: the swarm (your stacks, secrets, configs, networks), `config.yml` and the passwords in `state/secrets/`
+- k3s: the volumes on each server (local-path, in `/var/lib/rancher/k3s/storage`), while they run
 
 Not saved: the image registry (the installer fills it again; push your own images again)
 and Docker volumes. Keep your own stacks' files in `/opt/ansibro/<stack name>/` so they are saved too:
@@ -64,6 +65,8 @@ and `ip` values (with `wireguard: true` only `host` changes), keep `state/`, and
 
 Each server gets its newest backup back, the swarm comes back with your stacks, and the databases are
 loaded from their dumps. Old servers are removed from the swarm. A restore only runs on new servers.
+With a new `domain`, change Uptime Kuma's monitors to it in its web page: after the first install
+they are yours, and the installer does not change them.
 Lost `state/` too? Then you need the restic password that you saved outside the cluster
 (it was in `state/secrets/restic`). Install [restic](https://restic.net) on your computer, then run this.
 `<repository>` is `backup.repository` from `config.yml`:
@@ -100,6 +103,10 @@ last backup and WireGuard. Alerts are sent for:
 The rules are in [`roles/observability/files/alerts.yml`](../roles/observability/files/alerts.yml).
 Grafana has an "Ansibro overview" dashboard. Logs: `https://logs.<domain>/select/vmui`.
 
+While the installer runs, alerts are muted (except `Watchdog`): servers and apps that are not up yet
+would fire alerts for nothing. The mute ends 3 minutes after the install, or after 1 hour if the
+install stops half way. You see it in Alertmanager as a silence by `ansibro`.
+
 ## Who watches the monitoring?
 
 If the monitoring server stops, it cannot send an alert. So there is a
@@ -120,7 +127,8 @@ If it is gone, the monitoring is broken:
 Remove it from `config.yml` and run `./install.sh`. The installer stops it
 (and its agents, Traefik page and timer). Its data stays in `/opt/ansibro/<app>` on its server:
 `sudo rm -rf /opt/ansibro/<app>` if you do not need it. Not removed by itself: the app's database
-(drop it in Postgres or MariaDB) and its old images in the registry.
+(drop it in Postgres or MariaDB), its old images in the registry, and its Uptime Kuma monitor
+(delete it in Uptime Kuma's web page).
 
 ## Remove a server
 

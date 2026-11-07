@@ -32,8 +32,8 @@ Everything else is blocked. Server apps use the host network, so the firewall co
 Even between your servers only those ports are open (the list is `common_app_ports` in
 `roles/common/defaults/main.yml`). An app of your own on a server's host network needs a `firewall_allow` rule.
 Admin web pages can be limited to some IPs with `admin_allow_from` (the servers themselves are always
-let in too: Uptime Kuma checks the pages from there; on k3s also the pod range `10.42.0.0/16`, because
-requests from the servers arrive from there). k3s NodePorts answer only on a server's `ip`.
+let in too: Uptime Kuma checks the pages from there; on k3s also the pod range `10.42.0.0/16`, for the
+pods). Traefik sees each visitor's real IP: on k3s it takes ports 80 and 443 of its server itself. k3s NodePorts answer only on a server's `ip`.
 
 The installer owns the firewall. The first run, and every run where the rules change, resets it:
 rules you added by hand are removed (put them in `firewall_allow`). During that reset the firewall

@@ -95,10 +95,63 @@ Tested on DigitalOcean, two clusters with WireGuard, `ssh.allow_from` and `admin
   stopped on the `postgres` database; removing a k3s server failed, stayed in the inventory, was
   skipped without its label, and left an old pod network that broke the server when it joined again.
 
+- **k3s: `admin_allow_from` works again.** k3s's load balancer hid the visitor's IP behind a pod address,
+  and that pod range was let in, so the admin pages were open to everyone. Traefik now takes ports 80 and
+  443 of its server itself (host ports) and sees the real IP; its service is only inside the cluster
+  (the chart reads the type from `service.spec.type`).
+- **Removing a Swarm server failed** (`./install.sh -e remove_nodes=true`): a k3s step read an address
+  that is not there on Swarm.
+- **WireGuard: a new server could not be reached.** New peers are loaded without a restart, but that
+  did not add their routes. Now it adds the routes of new servers and removes those of old ones.
+- **PostgreSQL with Patroni: a server can leave and join again.** A server removed from the `postgres`
+  list stops PostgreSQL at the start of the install, while the others can still reach it, so Patroni hands
+  the primary over. A server that joins again with an old copy of the data (it can differ from the
+  primary's, and then the server cannot follow) keeps it aside in `data/pgroot.old` and gets a new copy.
+- **Docker stays held after an update.** apt took the hold away when it installed the new version, so
+  until the next install unattended-upgrades could change Docker.
+- Offline: Ubuntu's daily firmware check (`fwupd-refresh`) is turned off; without internet it failed
+  every day and fired `SystemdServiceFailed`.
+- **k3s restore on new servers works.** The new servers were refused ("Node password rejected": the
+  snapshot had the old servers' node passwords), and k3s volumes (local-path, with Traefik's
+  certificates) were not in the backup, so Traefik and apps with a volume could not start. Now the old
+  node passwords are forgotten, and each server's volumes are saved (while they run).
+- **Backup with a new S3 bucket on Ubuntu 26.04 waited 15 minutes.** restic 0.17 and newer try a missing
+  bucket again for that long, before it could be made. The installer now creates the repository first.
+- The config check stops on an S3 bucket name restic cannot use (before, the install waited for many
+  minutes while restic tried again).
+- Alerts are muted while the installer runs (except `Watchdog`): a first install no longer sends
+  `NodeDown` for servers whose agent was not installed yet. The mute ends 3 minutes after the install.
+- A removed app no longer shows as a change on every install after it stopped.
+- `tests/check.py` opens `state/` when it is kept encrypted (like `install.sh`), and closes it after.
+  It skips the Uptime Kuma monitor of a removed app.
 - `AlertRulesFailing` waits 10 minutes: one error while vmalert starts before the metrics database
   no longer fires it.
+- Docs: offline time sync on Ubuntu 26.04 (its chrony uses only signed time servers while it has them),
+  and what to change by hand in Uptime Kuma after removing an app or restoring with a new domain.
 
-Not tested yet: a Galera first install that stops half way and is run again.
+Tested on DigitalOcean for 1.3.0, each with a second run at `changed=0` and `tests/check.py` passing:
+- Ubuntu 24.04 and 26.04: swarm-1-server (real Let's Encrypt), swarm-2-servers (labels, timezone),
+  swarm-3-servers (Authelia, victoria with a webhook), k3s-4-servers.
+- swarm-ha (24.04): the installer on a separate machine, S3 backup and encrypted `state/`, Patroni and
+  Redis failover, an app upgrade. With WireGuard: a Docker update one server at a time (and back), the
+  stop when two servers swap roles, removing a manager and a worker and adding two new ones (with the
+  etcd steps from the docs), a Patroni server that leaves and joins again (as a replica and as the
+  primary), a backup to a rest-server and a restore on 9 new servers (the PostgreSQL data is back on all 3).
+- k3s-ha (24.04 and 26.04): Galera with a first install stopped half way and run again (3 servers in
+  sync), Redis with Sentinel, Garage, victoria, Uptime Kuma, S3 backup, and a restore on new servers
+  (the MariaDB data is back on all 3 servers, Traefik keeps its certificates).
+- k3s `admin_allow_from`: an upgrade from 1.3.0 and new installs (Let's Encrypt with one Traefik, and
+  self-signed with a Traefik on each worker): an IP outside the list gets 403, an allowed one gets in.
+- Swarm variant (24.04 and 26.04): Kong, Swarmpit, Keycloak, Valkey with Sentinel, NATS, OpenBao, RustFS,
+  Uptime Kuma, `tls: selfsigned`, `ssh.port`, `firewall_allow`, WireGuard, removing an app.
+- k3s variant (24.04 and 26.04): Kong, Keycloak, PostgreSQL on 2 servers, Valkey, RabbitMQ, Garage,
+  OpenBao, `tls: custom`, removing an app.
+- Offline (bundle built on a server, no internet): Swarm and k3s on Ubuntu 24.04 and 26.04, with
+  `tls: selfsigned`, `admin_allow_from`, and backup to a folder and to a rest-server.
+- `acme_server` with Let's Encrypt staging (26.04).
+
+Not tested yet:
+- swarm-ha on Ubuntu 26.04
 
 ## 1.2.0
 

@@ -12,6 +12,7 @@ otherwise over SSH with the same settings as the installer.
 Passwords are sent through stdin, so they never show up in a process list.
 """
 
+import atexit
 import datetime
 import hashlib
 import hmac
@@ -28,6 +29,12 @@ sys.path.insert(0, HERE)
 if len(sys.argv) > 1:
     os.environ["ANSIBRO_CONFIG"] = sys.argv[1]
 os.environ.setdefault("ANSIBRO_CONFIG", "config.yml")
+
+# state/ (the passwords) may be kept encrypted: open it like install.sh does, and close it at the end.
+STATE_SH = os.path.join(HERE, "scripts", "state.sh")
+subprocess.run([STATE_SH, "open"], check=True)
+atexit.register(subprocess.run, [STATE_SH, "close"], check=True)
+
 import inventory  # noqa: E402
 
 inv = inventory.build(*inventory.load_config())
@@ -477,6 +484,9 @@ def check_uptimekuma():
     monitors = [line for line in body.splitlines() if line.startswith("monitor_status{")]
     check(f"uptime kuma has its monitors ({len(monitors)})", len(monitors) >= 2, str(len(monitors)))
     down = [line.split('monitor_name="')[1].split('"')[0] for line in monitors if not line.endswith(" 1")]
+    # The monitor of a removed app stays (after the first install the monitors are yours): skip it.
+    removed = [app for app in CFG["catalog"] if app not in APPS]
+    down = [name for name in down if name.split(" ")[0] not in removed]
     if monitors:
         check("uptime kuma monitors are up", not down, ", ".join(down))
 
