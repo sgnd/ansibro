@@ -7,6 +7,10 @@
 # Ansible, packages and images all come from the bundle.
 set -euo pipefail
 
+case "${1:-}" in
+  -h|--help) sed -n '2,7p' "$0" | cut -c3-; exit 0 ;;
+esac
+
 # The first argument is the config file, unless it is an option like -v.
 config=config.yml
 if [ "$#" -gt 0 ] && [ "${1#-}" = "$1" ]; then
@@ -14,7 +18,8 @@ if [ "$#" -gt 0 ] && [ "${1#-}" = "$1" ]; then
   shift
 fi
 if [ ! -f "$config" ]; then
-  echo "error: $config not found. Run: cp config.example.yml config.yml, then edit config.yml." >&2
+  echo "error: $config not found. Copy an example and edit it, like:" >&2
+  echo "  cp examples/swarm-1-server.yml $config   (all examples: see README.md)" >&2
   exit 1
 fi
 # Full path, so it still works after we change folder below.
@@ -161,5 +166,11 @@ fi
 # and close it again when the install ends, also when it fails.
 scripts/state.sh open
 trap 'scripts/state.sh close' EXIT
+
+# Only you may read state/ (passwords, and database dumps during a restore), from the start of the run.
+if [ "${check[*]}" = "--list --ready" ]; then
+  mkdir -p state
+  chmod 700 state
+fi
 
 ansible-playbook site.yml "$@"
