@@ -25,6 +25,8 @@ Summary fixes
 
 ## 1.3.0
 
+Not released yet: there is no v1.3.0 tag or GitHub release. Until there is, the newest release is 1.2.0.
+
 Safer servers
 - SSH accepts only keys (no passwords), also for root.
 - fail2ban blocks an IP for 10 minutes after 5 failed SSH logins. The other servers and
