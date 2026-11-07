@@ -111,5 +111,5 @@ server's pages (metrics, logs, Alertmanager), etcd for Patroni, and Patroni's AP
 | `requirements.txt`, `requirements.yml` | The Python packages (Ansible) and Ansible add-ons the installer downloads. |
 | `build-bundle.sh` | Builds an offline bundle. |
 | `scripts/` | Small helpers: open and close `state/`, check versions, scan images. |
-| `tests/` | `check.py` checks a real install; `test_config.py` checks `config.yml` mistakes. |
+| `tests/` | `check.py` checks a real install; `test_config.py` checks `config.yml` mistakes; `test_handover.py` checks `state/handover.json` has the facts and no password. |
 | `.claude/skills/` | Help for AI agents (set up, install, add an app, update versions). |

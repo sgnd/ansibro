@@ -6,7 +6,7 @@ Keep your passwords safe, back up, add monitoring, and change your cluster.
 - [Back up and restore](#back-up-and-restore)
 - [Monitoring and alerts](#monitoring-and-alerts)
 - [Add or remove an app or a server](#remove-an-app)
-- [Upgrade an app](#upgrade-an-app)
+- [Upgrade an app](#upgrade-an-app), [upgrade Ansibro](#upgrade-ansibro) or [start over](#start-over)
 - [Database replicas](#database-replicas) and [Garage on 3 servers](#garage-on-3-servers)
 
 Commands that start with `sudo` run on a server: log in first with `ssh <user>@<server IP>`.
@@ -165,6 +165,31 @@ in `versions.yml`, then run `./install.sh`. To get the digest of a new version:
 `docker buildx imagetools inspect <image>:<tag>` (the top `Digest:` line).
 Big Postgres upgrades (for example 18 to 19) need a dump (one file with all the data) and a restore by hand.
 A new Docker version is installed one server at a time, so the swarm keeps running.
+
+## Upgrade Ansibro
+
+Use a released version (a tag like `v1.2.0`), not the newest `main`, on a cluster you care about.
+
+1. Make a copy of `state/` (or `state.age`) and your `config.yml`. `state/` holds every password.
+2. Read [CHANGELOG.md](../CHANGELOG.md) from your version up to the new one, for settings that
+   changed or were removed.
+3. Get the new version: `git fetch --tags && git checkout v<version>`. If you changed `versions.yml`
+   or other files yourself, `git stash` them first and `git stash pop` after, then check the result.
+4. Run `./install.sh --syntax-check` (it checks `config.yml` too), then `./install.sh`.
+
+A second `./install.sh` right after should show `changed=0`. Offline: build or download the bundle
+of the new version (see [offline.md](offline.md)) and put it in place of the old `bundle/` folder.
+
+## Start over
+
+The installer does not uninstall. The clean way is to rebuild the servers (a fresh Ubuntu) and run
+`./install.sh` again. Move `state/` away first: with the old one, the new install uses the old passwords.
+
+To clean a server by hand instead, these are the main things the installer changed (not all of them):
+`/opt/ansibro/` (data of the apps), Docker (held at its pinned version with `apt-mark hold`) or k3s
+(the `k3s` or `k3s-agent` service, `/usr/local/bin/k3s`, `/etc/rancher/k3s/`, `/var/lib/rancher/k3s/`), the firewall (`ufw`), WireGuard
+(`/etc/wireguard/wg0.conf`), fail2ban, SSH (`/etc/ssh/sshd_config.d/00-ansibro.conf`: only keys), automatic
+updates (`/etc/apt/apt.conf.d/20auto-upgrades`) and `ansibro-*` services in `/etc/systemd/system/`.
 
 ## Database replicas
 
