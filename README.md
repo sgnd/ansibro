@@ -36,7 +36,8 @@ from renting a server to opening your first app. Words you do not know are expla
 - **Servers** with Ubuntu 24.04 or 26.04, with an Intel or AMD CPU (amd64). ARM servers are not supported.
 - **At least 2 CPUs and 4 GB of memory** on each server (a server for monitoring needs 2 GB more).
 - **SSH login with a key**, and a user that can use `sudo` without a password.
-- **A computer to run the installer**, with Python 3.12 or newer: your laptop (macOS or Linux),
+- **A computer to run the installer**, with Python 3.12 to 3.14 (on a Mac
+  `./install.sh` installs it with `brew` if needed): your laptop (macOS or Linux),
   or the first manager server. It logs in to every server with SSH. It uses the server's `host`
   address, or its `ip` if `host` is not set.
 - **Internet** on the servers and on that computer (it downloads Ansible from PyPI and Ansible Galaxy),

@@ -9,9 +9,10 @@ A word you do not know? See [Words](#words) at the end.
 
 You need:
 
-- A computer with macOS or Linux, with `git` and Python 3.12 or newer. This is where you run the installer.
-  Check with `python3 --version`. Too old or missing? On a Mac: `brew install python@3.12 git`
-  (no `brew`? Get it from [brew.sh](https://brew.sh)). On Ubuntu: `sudo apt install git python3 python3-venv`.
+- A computer with macOS or Linux, with `git` and Python 3.12, 3.13 or 3.14. This is where you run the installer.
+  On a Mac, `./install.sh` finds a new Python itself (also `python3.13` and the like, from Homebrew,
+  uv or mise), and installs one with `brew` (or uv or mise) if there is none. No `brew`? Get it from
+  [brew.sh](https://brew.sh). On Ubuntu: `sudo apt install git python3 python3-venv`.
 - A domain name you own, for example `example.com`, where you can add DNS records.
 - A little money for a cloud server (a few dollars a month).
 

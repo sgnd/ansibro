@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Python on a Mac
+- `./install.sh` finds Python 3.12 to 3.14 also when `python3` is Apple's old 3.9 (or a too new
+  3.15, which breaks Ansible 2.21): it tries `python3`, `python3.14`, `python3.13` and `python3.12`
+  (in PATH and in Homebrew's folders), then uv and mise. With none, on a Mac it installs Python 3.13
+  with `brew` (or uv or mise), without sudo.
+- A `.venv` made with a Python that is too old or too new, or a broken one, is made again.
+
 Handover facts
 - The installer also writes `state/handover.json`: the servers, the apps and where they run, and the
   settings the installer worked out (database, cache, Traefik servers, admin login, ...). Tools that

@@ -11,7 +11,7 @@ The installer changes real servers. **Ask the user before you run `./install.sh`
 
 - `config.yml` exists and is valid. If not, use the `ansibro-setup` skill first.
 - Servers run Ubuntu 24.04 or 26.04 on Intel/AMD (amd64), with SSH key login and passwordless sudo.
-- The machine that runs the installer has Python 3.12 or newer and can reach every server over SSH (at its `host`, or its `ip` if `host` is not set).
+- The machine that runs the installer has Python 3.12 to 3.14 (on a Mac `./install.sh` finds or installs one) and can reach every server over SSH (at its `host`, or its `ip` if `host` is not set).
 - Always run it from the same machine, because the `state/` folder holds all passwords.
 
 ## Online (servers have internet)

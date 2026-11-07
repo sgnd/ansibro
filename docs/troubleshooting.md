@@ -22,7 +22,7 @@ Commands that start with `sudo` run on a server: log in first with `ssh <user>@<
 |---------|-----|
 | `UNREACHABLE` or `Permission denied (publickey)` | The installer cannot log in. Try it yourself: `ssh <user>@<host>`. Check `ssh.user`, `ssh.key` and each node's `host` in `config.yml`. Port 22 must be open in your cloud firewall. |
 | `Missing sudo password` | The user must use `sudo` without a password. Use `root`, or the user your cloud made (often `ubuntu`). |
-| `command not found: python3` or `Python 3.12 or newer is needed` | Install Python: `brew install python@3.12` on a Mac ([brew.sh](https://brew.sh) if you have no `brew`), `sudo apt install python3 python3-venv` on Ubuntu. |
+| `command not found: python3` or `Python 3.12, 3.13 or 3.14 is needed` | Install Python: `brew install python@3.13` on a Mac ([brew.sh](https://brew.sh) if you have no `brew`; with `brew`, uv or mise the installer does this itself), `sudo apt install python3 python3-venv` on Ubuntu. |
 | `config error: ...` | The message says what to fix in `config.yml`. |
 | Locked out of SSH | Check `ssh.allow_from`. Use your provider's console to run `sudo ufw disable`. Too many failed logins block your IP for 10 minutes (fail2ban): wait, or run `sudo fail2ban-client unban <your IP>`. Passwords do not work for SSH: use your key. |
 | `cannot reach ... over WireGuard` | Open UDP 51820 between the servers' `host` addresses in your cloud firewall. `sudo wg show` shows the last handshake. |
