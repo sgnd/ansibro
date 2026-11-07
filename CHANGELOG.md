@@ -1,9 +1,6 @@
 # Changelog
 
-## 1.3.0 (not released yet)
-
-Not released yet: there is no v1.3.0 tag or GitHub release. Until there is, the newest release
-is 1.2.0. This section holds everything since 1.2.0.
+## 1.3.0
 
 Follow-ups from a code review of the fixes below
 - A failed install no longer leaves alerts muted: `install.sh` ends the mute right away
