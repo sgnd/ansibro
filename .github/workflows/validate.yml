@@ -19,10 +19,13 @@ jobs:
   ansible:
     name: Ansible
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     env:
       ANSIBRO_CONFIG: config.example.yml
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # no step needs the token, so it is not left in .git
       - name: Install Ansible
         run: |
           python3 -m venv .venv
@@ -41,24 +44,33 @@ jobs:
   shellcheck:
     name: ShellCheck
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # no step needs the token, so it is not left in .git
       - run: shellcheck install.sh build-bundle.sh scripts/*.sh
 
   # 3. Every image and package in versions.yml still exists (amd64).
   versions:
     name: Pinned versions
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # no step needs the token, so it is not left in .git
       - run: scripts/validate-versions.sh
 
   # 4. Every link in the docs still works.
   links:
     name: Doc links
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # no step needs the token, so it is not left in .git
       - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
           # Some websites block bots (403, 429) or answer slowly.
@@ -66,7 +78,7 @@ jobs:
           # --include-fragments also checks links to a heading (file.md#heading).
           args: >-
             --no-progress --include-fragments --accept 200..=299,403,429 --accept-timeouts --max-retries 3
-            README.md THIRD_PARTY.md CONTRIBUTING.md SECURITY.md CHANGELOG.md docs/*.md
+            README.md THIRD_PARTY.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md CHANGELOG.md docs/*.md
             .claude/skills/*/SKILL.md .github/*.md
           fail: true
 
@@ -74,7 +86,10 @@ jobs:
   scan:
     name: Image scan
     runs-on: ubuntu-latest
+    timeout-minutes: 90  # pulls every pinned image
     if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # no step needs the token, so it is not left in .git
       - run: scripts/scan-images.sh
