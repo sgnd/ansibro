@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+Release readiness
+- `./install.sh --help` prints the usage. A missing config file names the file you gave and points
+  to `examples/` (not always `config.yml`).
+- A real run makes `state/` readable by you only (0700) before Ansible starts, not only at the end.
+  A restore's database dump goes into `state/` for a while.
+- `config.yml` values that end in a new line (domain, node name, label, backup time, URLs, smarthost)
+  are refused, like other bad values.
+- New in [docs/how-to.md](docs/how-to.md): how to upgrade Ansibro itself, and how to start over.
+  [docs/k3s.md](docs/k3s.md): `kubectl` from a laptop needs an SSH tunnel or a `firewall_allow` rule
+  for port 6443.
+- Docker's apt signing key is pinned by sha256 in `versions.yml` (`docker_apt_key_sha256`). The installer
+  and the offline bundle build stop when the key Docker serves is different, and
+  `scripts/validate-versions.sh` reports it.
+- The quick start clones the latest release (`git clone --branch v1.3.0`), not `main`.
+- Releases: the release workflow checks that `CHANGELOG.md` has the tag's section and that the config
+  tests pass before it publishes, and uses that section as the release notes.
+
 ## 1.3.0
 
 Follow-ups from a code review of the fixes below

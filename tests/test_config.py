@@ -64,6 +64,8 @@ CASES = [
     ("labels on a standalone node", lambda c: c["nodes"][2].update(labels={"a": "b"}), "labels only work on swarm nodes"),
     ("acme_ca_cert without acme_server", lambda c: c.update(acme_ca_cert="ca.pem"), "only used with acme_server"),
     ("domain with https://", lambda c: c.update(domain="https://example.com"), "plain lowercase name"),
+    ("domain ending in a new line", lambda c: c.update(domain="example.com\n"), "plain lowercase name"),
+    ("label ending in a new line", lambda c: c["nodes"][1].update(labels={"tier": "app\n"}), "may only use letters"),
     ("nodes as a dict", lambda c: c.update(nodes={"swarm1": "10.0.0.11"}), "nodes must be a list"),
     ("labels as a list", lambda c: c["nodes"][1].update(labels=["tier=app"]), "labels must look like"),
     ("label with a space", lambda c: c["nodes"][1].update(labels={"tier": "my app"}), "may only use letters"),

@@ -4,6 +4,7 @@
 #     points to a newer build)
 #   - the Ubuntu image digests that build-bundle.sh uses
 #   - each Docker apt package, for Ubuntu 24.04 (noble) and 26.04 (resolute), on amd64
+#   - Docker's apt signing key still has the pinned sha256
 # Needs: yq, docker (buildx), curl.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -63,6 +64,17 @@ for ubuntu in noble resolute; do
   done
   echo "ok $ubuntu"
 done
+
+echo "== Docker apt key"
+key_sha=$(yq '.docker_apt_key_sha256' versions.yml)
+live_sha=$(curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sha256sum | cut -d' ' -f1)
+if [ "$live_sha" = "$key_sha" ]; then
+  echo "ok docker_apt_key_sha256"
+else
+  echo "CHANGED Docker's apt key: it is now $live_sha, versions.yml has $key_sha"
+  echo "  Check https://docs.docker.com/engine/install/ubuntu/ before you change the pin."
+  failed=1
+fi
 
 echo "== k3s"
 k3s_version=$(yq '.k3s.version' versions.yml)

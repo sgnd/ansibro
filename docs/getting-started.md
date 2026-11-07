@@ -77,7 +77,7 @@ check the record at your domain company: the name must be `*` and the value your
 On your computer:
 
 ```bash
-git clone https://github.com/sgnd/ansibro.git
+git clone --branch v1.3.0 https://github.com/sgnd/ansibro.git   # the latest release
 cd ansibro
 cp config.example.yml config.yml
 ```

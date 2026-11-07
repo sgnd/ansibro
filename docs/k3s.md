@@ -11,6 +11,9 @@ With k3s:
   Standalone servers run server apps and are not in the cluster. The pinned k3s version is in `versions.yml`.
 - Use `kubectl` on a manager: `sudo k3s kubectl get nodes`. To use it from your laptop, copy
   `/etc/rancher/k3s/k3s.yaml` from a manager and change `127.0.0.1` in it to the manager's address.
+  The firewall opens port 6443 only to the other servers, so also do one of these: keep `127.0.0.1` and
+  open an SSH tunnel first (`ssh -L 6443:127.0.0.1:6443 <user>@<manager>`), or open 6443 to your own IP
+  with `firewall_allow: [{ port: 6443, proto: tcp, from: <your IP> }]` in `config.yml`.
 - Traefik is k3s's built-in one: `traefik: cluster` in `apps`. Server apps get their web pages through it
   like with Swarm. It runs on the workers, so the masters only run the cluster (no workers: on the masters).
   With `tls: letsencrypt` it runs on the first worker only: point DNS there. Else on every worker: point DNS to all of them. Your own apps: an `Ingress` or Traefik `IngressRoute`.

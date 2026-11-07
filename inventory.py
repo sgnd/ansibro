@@ -122,7 +122,7 @@ def check_backup(backup):
         if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket):
             fail(f"backup.repository: the bucket name must be 3 to 63 small letters, numbers, dots or -, "
                  f"like s3:https://s3.example.com/my-bucket, got '{bucket}'")
-    if not TIME.match(str(backup.get("time", "02:00"))):
+    if not TIME.fullmatch(str(backup.get("time", "02:00"))):
         fail(f"backup.time must look like \"02:00\", in quotes (without quotes it is read as a number), "
              f"got {backup.get('time')}")
     for key in ("keep_daily", "keep_weekly", "keep_monthly"):
@@ -155,14 +155,14 @@ def check_monitoring(monitoring):
         for key in ("to", "from", "smarthost"):
             if not email.get(key):
                 fail(f"monitoring.email.{key} is required")
-        if not re.match(r"^\S+:[0-9]+$", str(email["smarthost"])):
+        if not re.fullmatch(r"\S+:[0-9]+", str(email["smarthost"])):
             fail(f"monitoring.email.smarthost must be host:port, like smtp.example.com:587, got {email['smarthost']}")
         if bool(email.get("username")) != bool(email.get("password")):
             fail("monitoring.email: set both username and password, or neither")
         if email.get("tls", True) not in (True, False):
             fail("monitoring.email.tls must be true or false")
     for key in ("webhook", "heartbeat_url"):
-        if monitoring.get(key) and not URL.match(str(monitoring[key])):
+        if monitoring.get(key) and not URL.fullmatch(str(monitoring[key])):
             fail(f"monitoring.{key} must be a URL like https://..., got {monitoring[key]}")
     days = monitoring.get("keep_days", 30)
     if not isinstance(days, int) or isinstance(days, bool) or days < 1:
@@ -180,7 +180,7 @@ def check_settings(cfg, bundle):
         fail(f"unknown setting ssh.{', ssh.'.join(sorted(unknown))} (typo?)")
     if not cfg.get("domain"):
         fail("domain is required")
-    if not DOMAIN.match(str(cfg["domain"])):
+    if not DOMAIN.fullmatch(str(cfg["domain"])):
         fail(f"domain must be a plain lowercase name like example.com, got {cfg['domain']}")
     tls = cfg.get("tls", "letsencrypt")
     if tls not in ("letsencrypt", "selfsigned", "custom"):
@@ -225,7 +225,7 @@ def build_nodes(nodes, wireguard):
             fail(f"node {name}: unknown setting {', '.join(sorted(unknown))} (typo?)")
         if not name or not ip:
             fail(f"every node needs name and ip: {node}")
-        if not NODE_NAME.match(str(name)) or name in RESERVED_NAMES:
+        if not NODE_NAME.fullmatch(str(name)) or name in RESERVED_NAMES:
             fail(f"node name {name}: use only lowercase letters, numbers and -. "
                  f"These names are taken: {', '.join(sorted(RESERVED_NAMES))}")
         if role not in GROUPS:
@@ -236,7 +236,7 @@ def build_nodes(nodes, wireguard):
         if not isinstance(labels, dict):
             fail(f"{name}: labels must look like {{ tier: app }}")
         for key, value in labels.items():
-            if not LABEL.match(str(key)) or not LABEL.match(str(value)):
+            if not LABEL.fullmatch(str(key)) or not LABEL.fullmatch(str(value)):
                 fail(f"{name}: label {key}: {value} may only use letters, numbers, . _ and -")
         if name in hostvars:
             fail(f"duplicate node name {name}")

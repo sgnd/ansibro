@@ -4,6 +4,7 @@
   ansible.builtin.get_url:
     url: "{{ docker_apt_url }}/gpg"
     dest: /etc/apt/keyrings/docker.asc
+    checksum: "sha256:{{ docker_apt_key_sha256 }}"  # versions.yml: a changed key stops here
     mode: "0644"
   when: not offline
 
