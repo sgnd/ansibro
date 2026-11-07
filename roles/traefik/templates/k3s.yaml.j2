@@ -49,24 +49,31 @@ spec:
       tier: app
 {% endif %}
 {% endif %}
-{% if monitoring_app %}
-    # Metrics on port 8082 of each Traefik server, for the monitoring server
-    # (the NetworkPolicy below lets only the cluster servers in).
+    # Traefik takes ports 80 and 443 of its server itself (host ports), so it sees the visitor's real
+    # IP: admin_allow_from needs it. k3s's own load balancer (ServiceLB) would hide it behind a pod
+    # address, so the Traefik service is only inside the cluster. Only a server that runs Traefik answers.
     ports:
+      web:
+        hostPort: 80
+      websecure:
+        hostPort: 443
+{% if monitoring_app %}
+      # Metrics on port 8082 of each Traefik server, for the monitoring server
+      # (the NetworkPolicy below lets only the cluster servers in).
       metrics:
         port: 8082
         hostPort: 8082
+{% endif %}
+    # (The chart takes the type under spec; a plain "service.type" is ignored.)
+    service:
+      spec:
+        type: ClusterIP
     # A host port can be used by one Traefik per server only: stop the old one before the new one starts.
     updateStrategy:
       type: RollingUpdate
       rollingUpdate:
         maxUnavailable: 1
         maxSurge: 0
-{% endif %}
-    # Keeps the real client IP. Only a server that runs Traefik answers.
-    service:
-      spec:
-        externalTrafficPolicy: Local
 {% if monitoring_app %}
 ---
 # The metrics port has no login: only the cluster servers may use it. Web ports are open to all.

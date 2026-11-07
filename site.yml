@@ -138,6 +138,17 @@
         name: cleanup
         tasks_from: nodes
 
+# A server that is no longer in the PostgreSQL cluster (Patroni) stops it before the firewall changes.
+- name: Servers that leave the PostgreSQL cluster
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Stop PostgreSQL where config.yml no longer has it
+      ansible.builtin.include_role:
+        name: cleanup
+        tasks_from: postgres
+      when: "'postgres' not in node_apps"
+
 - name: Base system
   hosts: all
   environment: "{{ apt_env }}"  # offline: apt uses only the bundle
@@ -316,3 +327,24 @@
         msg: >-
           All of this, plus the passwords, is saved in {{ playbook_dir }}/state/summary.md. Back up state/.
           If state/ is kept encrypted, run scripts/state.sh open to read it, and scripts/state.sh close after.
+
+# The monitoring server muted alerts while the installer ran (roles/observability/tasks/server.yml).
+# End the mute in 3 minutes: by then every server and app reports in, so alerts that fired only
+# because something was not up yet are resolved and are not sent.
+- name: Unmute alerts
+  hosts: all
+  tasks:
+    - name: End the mute in 3 minutes
+      ansible.builtin.uri:
+        url: "http://{{ node_ip }}:{{ observability_alertmanager_port | default(9093) }}/api/v2/silences"
+        method: POST
+        body_format: json
+        body:
+          id: "{{ observability_mute.json.silenceID }}"
+          matchers: [{ name: alertname, value: Watchdog, isRegex: false, isEqual: false }]
+          startsAt: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(now().timestamp(), utc=true) }}"
+          endsAt: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(now().timestamp() + 180, utc=true) }}"
+          createdBy: ansibro
+          comment: The installer is done. Ends in 3 minutes.
+      changed_when: false
+      when: monitoring_app != '' and inventory_hostname == apps[monitoring_app] and observability_mute.json is defined

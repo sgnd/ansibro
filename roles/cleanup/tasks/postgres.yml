@@ -1,0 +1,16 @@
+# A server that leaves the PostgreSQL cluster (Patroni) stops PostgreSQL first, while the other
+# servers can still reach it: Patroni then hands the primary over to one of them. (Later in the
+# install the firewall closes its ports, and a primary there could not be reached any more.)
+
+- name: Look for PostgreSQL with Patroni on this server
+  ansible.builtin.stat:
+    path: "{{ apps_dir }}/postgres/data/pgroot"
+  register: cleanup_patroni_data
+
+- name: Stop PostgreSQL that left the cluster
+  ansible.builtin.command:
+    cmd: docker compose down
+    chdir: "{{ apps_dir }}/postgres"
+  register: cleanup_patroni_down
+  changed_when: "'No resource found to remove' not in cleanup_patroni_down.stderr"
+  when: cleanup_patroni_data.stat.exists

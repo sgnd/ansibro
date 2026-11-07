@@ -95,6 +95,19 @@
   delegate_to: "{{ swarm_leader }}"
   run_once: true
 
+# Restore: the snapshot has the node passwords of the old servers. The new servers have new ones,
+# so k3s would refuse them ("Node password rejected"). Forget the old ones: each server that joins
+# sets its own again.
+- name: Forget the node passwords of the old servers
+  ansible.builtin.shell: |
+    set -o pipefail
+    k3s kubectl -n kube-system get secrets -o name | grep '\.node-password\.k3s$' \
+      | grep -v '/{{ swarm_leader }}\.node-password\.k3s$' | xargs -r k3s kubectl -n kube-system delete
+  args:
+    executable: /bin/bash
+  when: restore | bool and inventory_hostname == swarm_leader and k3s_snapshot.files | length > 0
+  changed_when: true
+
 # Servers join one by one, so the cluster keeps a working majority.
 - name: Start k3s on the other servers
   ansible.builtin.systemd_service:

@@ -9,6 +9,7 @@
 #   - databases (PostgreSQL, MariaDB) as a dump, while they run
 #   - every other app folder in {{ apps_dir }}: the app is paused for a moment while its files are copied
 #   - big object storage (RustFS, Garage data) as it is, while it runs
+#   - k3s: the volumes on this server (local-path), while they run
 #   - monitoring: Grafana and Alertmanager, but not the metrics and logs history
 #   - first manager: the swarm (your stacks, secrets, networks) or a k3s snapshot, config.yml and state/
 # Not saved: the image registry (the installer fills it again; push your own images again).
@@ -133,6 +134,12 @@ for dir in {{ apps_dir }}/*/; do
     *) copy_app "$app" ;;
   esac
 done
+{% if orchestrator == 'k3s' and inventory_hostname in groups['swarm'] %}
+# k3s volumes on this server (local-path, like Traefik's certificates): saved while they run.
+if [ -d /var/lib/rancher/k3s/storage ]; then
+  paths+=(/var/lib/rancher/k3s/storage)
+fi
+{% endif %}
 {% if inventory_hostname == swarm_leader %}
 
 # 3. First manager: the cluster state, and the installer files (config.yml, state/).
