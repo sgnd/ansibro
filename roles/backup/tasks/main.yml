@@ -31,9 +31,11 @@
   diff: false  # has passwords
 
 # One server at a time: with a shared repository (S3, rest-server) the first one creates it,
-# with a folder each server has its own.
+# with a folder each server has its own. "init" first: it stops at once when the repository is
+# there. (restic 0.17 and newer try a missing S3 bucket again for 15 minutes, so "cat config" first
+# could wait that long.)
 - name: Create the backup repository if it is not there
-  ansible.builtin.shell: set -a && . {{ backup_dir }}/restic.env && (restic cat config >/dev/null 2>&1 || restic init)
+  ansible.builtin.shell: set -a && . {{ backup_dir }}/restic.env && (restic init 2>&1 || restic cat config >/dev/null)
   register: backup_repo
   changed_when: "'created restic repository' in backup_repo.stdout"
   throttle: 1
