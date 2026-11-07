@@ -23,13 +23,56 @@ export ANSIBRO_CONFIG
 
 cd "$(dirname "$0")"
 
-# Ansible needs Python 3.12 or newer.
-if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>/dev/null; then
-  echo "error: Python 3.12 or newer is needed, found: $(python3 --version 2>&1)" >&2
-  echo "  On a Mac: brew install python@3.12 (or newer). On Ubuntu: sudo apt install python3 python3-venv." >&2
-  echo "  Then run ./install.sh again." >&2
-  exit 1
-fi
+# Ansible (ansible-core 2.21, see requirements.txt) works with Python 3.12, 3.13 and 3.14.
+# Older is too old, and 3.15 breaks it. When requirements.txt gets a newer Ansible, check this again.
+# python_ok tells if the Python program given is there, works, and is one of these versions.
+python_ok() {
+  [ -n "$1" ] && "$1" -c 'import sys; sys.exit(not (3, 12) <= sys.version_info[:2] <= (3, 14))' 2>/dev/null
+}
+
+# find_python looks for a Python 3.12 to 3.14 and keeps it in $python.
+# On a Mac "python3" is often Apple's old 3.9, so we also try python3.14, 3.13 and 3.12,
+# in PATH and in Homebrew's folders, and then ask uv and mise if they are installed.
+python=
+find_python() {
+  local name try
+  for name in python3 python3.14 python3.13 python3.12; do
+    for try in "$(command -v "$name" || true)" "/opt/homebrew/bin/$name" "/usr/local/bin/$name"; do
+      if python_ok "$try"; then python=$try; return 0; fi
+    done
+  done
+  if command -v uv >/dev/null; then
+    try=$(uv python find '>=3.12,<3.15' 2>/dev/null || true)
+    if python_ok "$try"; then python=$try; return 0; fi
+  fi
+  if command -v mise >/dev/null; then
+    try=$(mise which python3 2>/dev/null || true)
+    if python_ok "$try"; then python=$try; return 0; fi
+  fi
+  return 1
+}
+
+# install_python installs Python 3.13 on a Mac, with a tool that needs no sudo:
+# Homebrew if it is there, else uv, else mise. Then it looks again.
+install_python() {
+  local try
+  [ "$(uname -s)" = Darwin ] || return 1
+  if command -v brew >/dev/null; then
+    echo "Python 3.12 to 3.14 not found. Installing it: brew install python@3.13"
+    brew install python@3.13 || return 1
+  elif command -v uv >/dev/null; then
+    echo "Python 3.12 to 3.14 not found. Installing it: uv python install 3.13"
+    uv python install 3.13 || return 1
+  elif command -v mise >/dev/null; then
+    echo "Python 3.12 to 3.14 not found. Installing it: mise install python@3.13"
+    mise install python@3.13 || return 1
+    try=$(mise where python@3.13 2>/dev/null || true)/bin/python3
+    if python_ok "$try"; then python=$try; return 0; fi
+  else
+    return 1
+  fi
+  find_python
+}
 
 offline=false
 [ -f bundle/info.yml ] && offline=true
@@ -50,7 +93,7 @@ fi
 # Install python3-venv with apt, from the internet or from the bundle.
 install_venv_package() {
   if ! command -v apt-get >/dev/null; then
-    echo "error: Python's venv is missing. On a Mac: brew install python@3.12, then run ./install.sh again." >&2
+    echo "error: Python's venv is missing. On a Mac: brew install python@3.13, then run ./install.sh again." >&2
     exit 1
   fi
   if $offline; then
@@ -71,8 +114,21 @@ EOF
 # Install Ansible in .venv. A copy of requirements.txt in .venv shows what is installed,
 # so this only runs again when requirements.txt changes.
 venv=.venv
+# A .venv made with a Python that is too old or too new, or was removed since, does not work. Make it again.
+if [ -d "$venv" ] && ! python_ok "$venv/bin/python"; then
+  echo "The Python in $venv is broken, or not Python 3.12 to 3.14. Making $venv again."
+  rm -rf "$venv"
+fi
 if ! cmp -s requirements.txt "$venv/requirements.txt"; then
-  python3 -m venv "$venv" 2>/dev/null || { install_venv_package && python3 -m venv "$venv"; }
+  if ! find_python && ! install_python; then
+    echo "error: Python 3.12, 3.13 or 3.14 is needed, found: $(python3 --version 2>&1)" >&2
+    echo "  On a Mac: brew install python@3.13 (get brew at https://brew.sh)." >&2
+    echo "  On Ubuntu: sudo apt install python3 python3-venv." >&2
+    echo "  Then run ./install.sh again." >&2
+    exit 1
+  fi
+  echo "Using $python ($("$python" --version 2>&1)) for $venv."
+  "$python" -m venv "$venv" 2>/dev/null || { install_venv_package && "$python" -m venv "$venv"; }
   if $offline; then
     "$venv/bin/pip" install --quiet --no-index --find-links bundle/python -r requirements.txt
   else
