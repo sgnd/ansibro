@@ -22,7 +22,7 @@ spec:
 {% endif %}
       containers:
         - name: kong
-          image: {{ registry_addr }}/kong:{{ images.kong.tag }}
+          image: {{ image_ref.kong }}
           envFrom: [{ secretRef: { name: kong } }]
           env:
             - { name: KONG_DATABASE, value: postgres }

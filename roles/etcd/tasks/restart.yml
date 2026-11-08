@@ -1,0 +1,19 @@
+# Start (or restart, after a change) etcd on one member, and wait until it is back in the cluster.
+# Used by tasks/main.yml, one member after the other. Input: etcd_member
+- name: Start etcd on {{ etcd_member }}
+  ansible.builtin.command:
+    cmd: docker compose up -d
+    chdir: "{{ etcd_dir }}"
+  delegate_to: "{{ etcd_member }}"
+  register: etcd_member_up
+  changed_when: "'Started' in etcd_member_up.stderr or 'Recreated' in etcd_member_up.stderr"
+
+# /health is true only when this member sees a leader, so it is back in the cluster.
+- name: Wait for etcd on {{ etcd_member }}
+  ansible.builtin.uri:
+    url: "http://{{ hostvars[etcd_member].node_ip }}:{{ etcd_client_port }}/health"
+  delegate_to: "{{ etcd_member }}"
+  register: etcd_member_health
+  until: (etcd_member_health.json | default({})).health | default('') == 'true'
+  retries: 30
+  delay: 5

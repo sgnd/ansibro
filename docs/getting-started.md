@@ -122,20 +122,24 @@ It checks `config.yml` first. If something is wrong, it tells you what to fix.
 Then it sets up the server. This takes a while. Lines that say `ok` or `changed` are good;
 red lines that say `FAILED` are not (see [Check and fix](troubleshooting.md#troubleshooting)).
 
-At the end it prints the address of each app. It also saves them, with all passwords, in `state/summary.md`.
+At the end it prints the address of each app. It also saves them in `state/summary.md`. Each password
+is a file in `state/secrets/`.
 
 Want to be sure everything works? Run the checks in [Check and fix](troubleshooting.md).
 
 ## 6. Open your apps
 
 Open `https://portainer.example.com` in your browser. Portainer shows your containers and lets you
-start your own apps. The passwords are in `state/summary.md`.
+start your own apps. Its password is in `state/secrets/portainer_admin`. The installer keeps `state/`
+encrypted, so to read it: `scripts/state.sh open`, then `cat state/secrets/portainer_admin`, then
+`scripts/state.sh close`.
 
 You are done. Next:
 
-- **Keep the `state/` folder safe.** It holds every password. Without it, the next run makes new
-  passwords that do not match your database. Copy it somewhere safe, and
-  [keep it encrypted](how-to.md#keep-state-safe-and-encrypted).
+- **Keep `state/` and its key safe.** `state/` holds every password. Without it, the next run makes new
+  passwords that do not match your database. The installer keeps it encrypted (`state.age`) with the key
+  `~/.config/ansibro/age.key`, which it made the first time: save a copy of that key in a password manager,
+  and copy `state.age` somewhere safe. See [Keep `state/` safe](how-to.md#keep-state-safe-and-encrypted).
 - **Run `./install.sh` again** whenever you change `config.yml`, for example to add an app or a server.
   It only changes what is different.
 - **Add [backups](how-to.md#back-up-and-restore) and [alerts](how-to.md#monitoring-and-alerts).**

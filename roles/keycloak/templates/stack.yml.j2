@@ -1,21 +1,25 @@
 services:
   keycloak:
-    image: {{ registry_addr }}/keycloak:{{ images.keycloak.tag }}
+    image: {{ image_ref.keycloak }}
+    # Keycloak reads no *_FILE settings: its two passwords come from the swarm secrets when it starts
+    # ($$: a $ for Docker; "$(< file)" is bash for the text of the file).
+    entrypoint: ["/bin/bash", "-c", "export KC_DB_PASSWORD=\"$$(< /run/secrets/db_password)\" KC_BOOTSTRAP_ADMIN_PASSWORD=\"$$(< /run/secrets/admin_password)\" && exec /opt/keycloak/bin/kc.sh \"$$@\"", "kc.sh"]
     command: start
+    secrets:
+      - { source: db_password, target: db_password }
+      - { source: admin_password, target: admin_password }
     environment:
       KC_DB: {{ database_app }}
       KC_DB_URL_HOST: {{ database_host }}
       KC_DB_URL_DATABASE: keycloak
       KC_DB_USERNAME: keycloak
-      KC_DB_PASSWORD: {{ keycloak_db_password }}
       KC_HOSTNAME: https://{{ keycloak_host }}
       # Traefik handles HTTPS and tells Keycloak the real address.
       KC_HTTP_ENABLED: "true"
       KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
-      # Only used the first time, to create the admin user.
+      # Only used the first time, to create the admin user (its password: see entrypoint).
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: {{ keycloak_admin_password }}
     # Ready = Keycloak answers on /health/ready (port 9000). The image has no curl, so bash does the request.
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
@@ -49,14 +53,16 @@ services:
 
   # The Keycloak login in front of the admin pages (Traefik middleware "admin").
   oauth2-proxy:
-    image: {{ registry_addr }}/oauth2-proxy:{{ images['oauth2-proxy'].tag }}
+    image: {{ image_ref['oauth2-proxy'] }}
     command:
 {% for arg in keycloak_oauth_args %}
       - "{{ arg }}"
 {% endfor %}
-    environment:
-      OAUTH2_PROXY_CLIENT_SECRET: {{ keycloak_oauth_client_secret }}
-      OAUTH2_PROXY_COOKIE_SECRET: {{ keycloak_oauth_cookie_secret }}
+      - --client-secret-file=/run/secrets/oauth_client_secret
+      - --cookie-secret-file=/run/secrets/oauth_cookie_secret
+    secrets:
+      - { source: oauth_client_secret, target: oauth_client_secret }
+      - { source: oauth_cookie_secret, target: oauth_cookie_secret }
     networks:
       - public
     deploy:
@@ -66,6 +72,14 @@ services:
         traefik.http.routers.oauth.rule: Host(`{{ keycloak_oauth_host }}`)
         traefik.http.services.oauth.loadbalancer.server.port: "4180"
 {% endif %}
+
+# The name changes with the file (keycloak_secret_sums in tasks/main.yml), so a new password reaches Keycloak.
+secrets:
+{% for name in ['db_password', 'admin_password'] + (['oauth_client_secret', 'oauth_cookie_secret'] if admin_sso == 'keycloak' else []) %}
+  {{ name }}:
+    name: keycloak-{{ name | replace('_', '-') }}-{{ keycloak_secret_sums[name] }}
+    file: ./secrets/{{ name }}
+{% endfor %}
 
 networks:
   public:

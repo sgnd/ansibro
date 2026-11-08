@@ -3,7 +3,9 @@
 # Runs every night at {{ backup_time }} (ansibro-backup.timer).
 #
 #   sudo ansibro-backup              back up now
-#   sudo ansibro-backup snapshots    list the backups of all servers (add --json for a program)
+#   sudo ansibro-backup snapshots    list the backups of this server (add --json for a program)
+#
+# Each server has its own repository and password, {{ backup_repository }}.
 #
 # What it saves:
 #   - databases (PostgreSQL, MariaDB) as a dump, while they run
@@ -11,8 +13,9 @@
 #   - big object storage (RustFS, Garage data) as it is, while it runs
 #   - k3s: the volumes on this server (local-path), while they run
 #   - monitoring: Grafana and Alertmanager, but not the metrics and logs history
-#   - first manager: the swarm (your stacks, secrets, networks) or a k3s snapshot, config.yml and state/
-# Not saved: the image registry (the installer fills it again; push your own images again).
+#   - first manager: the swarm (your stacks, secrets, networks) or a k3s snapshot, and config.yml and
+#     state/secrets/ encrypted for the installer's age key (installer.tar.age)
+# Not saved: the image registry (the installer fills it again; push your own images again: sudo ansibro-registry open).
 set -euo pipefail
 set -a
 . {{ backup_dir }}/restic.env
@@ -142,7 +145,7 @@ fi
 {% endif %}
 {% if inventory_hostname == swarm_leader %}
 
-# 3. First manager: the cluster state, and the installer files (config.yml, state/).
+# 3. First manager: the cluster state, and the installer files (config.yml, state/secrets/), encrypted.
 {% if orchestrator == 'swarm' %}
 cp -a /var/lib/docker/swarm "$stage/swarm"
 {% else %}
@@ -151,7 +154,9 @@ rm -rf "$stage/k3s"
 mkdir -p "$stage/k3s"
 k3s etcd-snapshot save --dir "$stage/k3s" --name ansibro >/dev/null
 {% endif %}
-cp -a {{ backup_dir }}/installer "$stage/installer"
+if [ -d {{ backup_dir }}/installer ]; then
+  cp -a {{ backup_dir }}/installer "$stage/installer"
+fi
 {% endif %}
 
 # 4. Send it to the repository, then delete old backups of this server.

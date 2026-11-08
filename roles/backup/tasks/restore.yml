@@ -1,25 +1,48 @@
-# Restore: put the newest backup of this server back (./install.sh -e restore=true, on new servers).
+# Restore: put the newest backup of this server back (./install.sh -e restore=true, on new servers;
+# add -e restore_legacy=true for a backup made before ansibro 1.4).
 # Runs after Docker and the registry, before the swarm and the apps, so the apps start with their old files.
 # The databases are loaded from their dumps by their own roles (postgres, mariadb).
 
 - name: Write backup settings
   ansible.builtin.import_tasks: settings.yml
 
+# Each server has its own repository (only it and the installer know its password), so a backup in
+# it was made by this server. A backup from the old shared repository (restore_legacy) could have
+# been made by any server of the old cluster: the checks below keep it to this server's folders too.
 - name: Find the newest backup of this server
-  ansible.builtin.shell: set -a && . {{ backup_dir }}/restic.env && restic snapshots --json --latest 1 --host {{ inventory_hostname }}
+  ansible.builtin.shell: >-
+    set -a && . {{ backup_dir }}/restic.env &&
+    restic snapshots --json --latest 1 --host {{ inventory_hostname }} --tag ansibro
   register: backup_snapshots
   changed_when: false
 
 - name: Stop if there is no backup of this server
   ansible.builtin.assert:
     that: backup_snapshots.stdout | from_json | length > 0
-    fail_msg: "No backup of {{ inventory_hostname }} in {{ backup.repository }}. Node names in config.yml must be the same as before."
+    fail_msg: >-
+      No backup of {{ inventory_hostname }} in {{ backup_repository_base if restore_legacy | bool else backup_repository }}.
+      Node names in config.yml must be the same as before.
+      {{ '' if restore_legacy | bool else 'Backups made before ansibro 1.4 are in the old shared repository: add -e restore_legacy=true.' }}
+
+# A backup holds only the folders ansibro-backup saves (backup_restore_paths), never /etc or /root.
+- name: Check the backup holds only this server's folders
+  ansible.builtin.assert:
+    that:
+      - backup_snapshot.hostname == inventory_hostname
+      - backup_snapshot.paths | map('regex_replace', '/+$', '') | difference(backup_restore_paths) | length == 0
+    fail_msg: >-
+      The newest backup of {{ inventory_hostname }} ({{ backup_snapshot.short_id }}) has other folders than a backup
+      made by ansibro: {{ backup_snapshot.paths | join(', ') }}. It is not restored.
+  vars:
+    backup_snapshot: "{{ (backup_snapshots.stdout | from_json)[0] }}"
 
 # restic puts the files back at their old paths: the stage folder, and the big storage folders.
+# Only those folders (--include), and --verify reads every file back to check it.
 - name: Get the files back
   ansible.builtin.shell: >-
     set -a && . {{ backup_dir }}/restic.env &&
-    restic restore {{ (backup_snapshots.stdout | from_json)[0].short_id }} --target /
+    restic restore {{ (backup_snapshots.stdout | from_json)[0].short_id }} --target / --verify
+    {% for path in backup_restore_paths %}--include {{ path }} {% endfor %}
   changed_when: true
 
 - name: Put the app folders back

@@ -1,0 +1,18 @@
+# The registry's settings. Made by ansibro. The address, certificate and login are in compose.yml.
+# Read-only (pulls work, pushes get "405 Method Not Allowed") except while the installer pushes
+# images, or after "sudo ansibro-registry open" (roles/registry/tasks/mode.yml).
+version: 0.1
+log:
+  fields:
+    service: registry
+storage:
+  cache:
+    blobdescriptor: inmemory
+  filesystem:
+    rootdirectory: /var/lib/registry
+  maintenance:
+    readonly: {enabled: {{ 'true' if registry_readonly | default(true) | bool else 'false' }}}
+http:
+  addr: :{{ registry_port }}
+  headers:
+    X-Content-Type-Options: [nosniff]

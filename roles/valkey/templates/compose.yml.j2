@@ -1,6 +1,6 @@
 services:
   valkey:
-    image: {{ registry_addr }}/valkey:{{ images.valkey.tag }}
+    image: {{ image_ref.valkey }}
     container_name: valkey
     restart: always
     # Host network: the firewall decides who can connect.
@@ -24,7 +24,7 @@ services:
 
   # Watches the primary and picks a new one when it is down. Apps can ask it where the primary is.
   valkey-sentinel:
-    image: {{ registry_addr }}/valkey:{{ images.valkey.tag }}
+    image: {{ image_ref.valkey }}
     container_name: valkey-sentinel
     restart: always
     network_mode: host

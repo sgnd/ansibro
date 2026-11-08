@@ -1,0 +1,74 @@
+# Restart PostgreSQL with Patroni one server at a time (tasks/main.yml), after its settings or image
+# changed. The replicas go first. Then the primary hands over to a replica that is up to date (a
+# switchover: writes stop for a few seconds, database-proxy follows the new primary), and restarts
+# last, as a replica. Each server must be back in the cluster before the next one restarts.
+# Input: postgres_rolling_nodes (the servers to restart)
+
+- name: Ask Patroni which server is the primary
+  ansible.builtin.uri:
+    url: "http://{{ hostvars[app_nodes.postgres[0]].node_ip }}:8008/cluster"
+  register: postgres_roll_cluster
+  failed_when: false
+  run_once: true
+
+- name: Put the servers in order, the primary last
+  ansible.builtin.set_fact:
+    postgres_roll_leader: "{{ postgres_roll_leaders[0] if postgres_roll_leaders | length == 1 else '' }}"
+    postgres_roll_replicas: "{{ postgres_rolling_nodes | difference(postgres_roll_leaders) }}"
+  vars:
+    postgres_roll_leaders: >-
+      {{ (postgres_roll_cluster.json | default({})).members | default([]) | selectattr('role', 'equalto', 'leader')
+      | selectattr('state', 'equalto', 'running') | map(attribute='name') | list | intersect(postgres_rolling_nodes) }}
+  run_once: true
+
+- name: Restart the replicas
+  ansible.builtin.include_tasks: restart_member.yml
+  loop: "{{ postgres_roll_replicas }}"
+  loop_control:
+    loop_var: postgres_member
+  run_once: true
+
+- name: Restart the primary
+  when: postgres_roll_leader != ''
+  run_once: true
+  block:
+    # Patroni picks the replica that is most up to date. It refuses (412 or 503) when no replica
+    # is healthy: then the primary restarts without a handover, as before (a short stop of writes).
+    - name: Hand the primary over to a replica
+      ansible.builtin.uri:
+        url: "http://{{ hostvars[postgres_roll_leader].node_ip }}:8008/switchover"
+        method: POST
+        body_format: json
+        body: { leader: "{{ postgres_roll_leader }}" }
+        url_username: patroni
+        url_password: "{{ postgres_patroni_api_password }}"
+        force_basic_auth: true
+        status_code: [200, 412, 503]
+        timeout: 120
+      register: postgres_switchover
+      changed_when: postgres_switchover.status == 200
+      no_log: true
+
+    - name: Say why the primary did not hand over
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: no PostgreSQL replica could take over from {{ postgres_roll_leader }} now
+          ({{ postgres_switchover.content | default('no answer') | trim }}), so it restarts without a handover:
+          writes stop until Patroni picks a primary again.
+      when: postgres_switchover.status != 200
+
+    - name: Wait until another server is the primary
+      ansible.builtin.uri:
+        url: "http://{{ hostvars[postgres_roll_leader].node_ip }}:8008/cluster"
+      register: postgres_roll_new
+      until: >-
+        (postgres_roll_new.json | default({})).members | default([]) | selectattr('role', 'equalto', 'leader')
+        | selectattr('state', 'equalto', 'running') | rejectattr('name', 'equalto', postgres_roll_leader) | list | length == 1
+      retries: 24
+      delay: 5
+      when: postgres_switchover.status == 200
+
+    - name: Restart the old primary
+      ansible.builtin.include_tasks: restart_member.yml
+      vars:
+        postgres_member: "{{ postgres_roll_leader }}"

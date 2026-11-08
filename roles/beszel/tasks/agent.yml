@@ -24,7 +24,7 @@
     apply:
       run_once: true
   vars:
-    registry_mirror_images: [beszel-agent]
+    registry_mirror_images: [beszel-agent, socket-proxy]
 
 - name: Create Beszel agent folder
   ansible.builtin.file:

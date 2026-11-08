@@ -1,6 +1,6 @@
 services:
   authelia:
-    image: {{ registry_addr }}/authelia:{{ images.authelia.tag }}
+    image: {{ image_ref.authelia }}
     # Changes when the config changes, so Authelia restarts and reads it.
     labels:
       ansibro.config: "{{ authelia_config.checksum }}"

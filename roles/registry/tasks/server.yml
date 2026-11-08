@@ -6,7 +6,7 @@
     path: "{{ registry_dir }}/{{ item }}"
     state: directory
     mode: "0700"
-  loop: [ca, certs, data, auth]
+  loop: [ca, certs, data, auth, config]
 
 # Full certificate fields: newer tools (for example Python 3.13+) reject certificates without them.
 # The certificate is good for the registry name and the IP of every manager.
@@ -123,6 +123,20 @@
   when: registry_image_check.rc != 0
   changed_when: true
 
+# Read-only. The installer makes it writable only while it pushes images (tasks/mode.yml).
+- name: Write registry config
+  ansible.builtin.template:
+    src: config.yml.j2
+    dest: "{{ registry_dir }}/config/config.yml"
+    mode: "0644"
+  register: registry_config
+
+- name: Write the command that opens the registry for your own images
+  ansible.builtin.template:
+    src: ansibro-registry.j2
+    dest: /usr/local/bin/ansibro-registry
+    mode: "0700"
+
 - name: Write registry compose file
   ansible.builtin.template:
     src: compose.yml.j2
@@ -136,4 +150,4 @@
     tasks_from: compose
   vars:
     docker_compose_app: registry
-    docker_compose_restart: "{{ registry_san.changed | default(false) or registry_copied.changed }}"
+    docker_compose_restart: "{{ registry_san.changed | default(false) or registry_copied.changed or registry_config.changed }}"

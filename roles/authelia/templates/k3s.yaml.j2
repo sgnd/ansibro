@@ -18,7 +18,7 @@ spec:
       nodeSelector: { kubernetes.io/hostname: {{ swarm_leader }} }
       containers:
         - name: authelia
-          image: {{ registry_addr }}/authelia:{{ images.authelia.tag }}
+          image: {{ image_ref.authelia }}
           ports: [{ containerPort: 9091 }]
           volumeMounts: [{ name: config, mountPath: /config }]
       volumes:

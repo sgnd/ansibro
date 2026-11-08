@@ -1,6 +1,6 @@
 # OpenBao: keeps secrets (passwords, API keys, certificates) for your apps.
-# Apps use http://<server ip>:8200, people use https://openbao.<domain>. Log in with the root token
-# in state/secrets/openbao_root_token, then make users and policies for your apps.
+# Apps use http://<server ip>:8200, people use https://openbao.<domain>. Log in with user admin and
+# the password in state/secrets/openbao_admin (method "Username"), then make users and policies for your apps.
 #
 # OpenBao keeps its data encrypted and starts "sealed": it needs the unseal key before it works.
 # The installer sets it up once, saves the unseal key in state/secrets/openbao_unseal_key,
@@ -97,12 +97,69 @@
   changed_when: true
   no_log: true
 
+# The installer logs in as user admin (state/secrets/openbao_admin, policy "admin": everything).
+# The root token from the setup is only used once, to make that user; then it is revoked and its
+# file deleted, so no token that never expires is left. Need a root token again? docs/apps.md says
+# how to make one with the unseal key (bao operator generate-root).
+- name: Look for the OpenBao root token
+  ansible.builtin.stat:
+    path: "{{ secrets_dir }}/openbao_root_token"
+  delegate_to: localhost
+  become: false
+  register: openbao_root_file
+
+# 403: the token was revoked already (a run that stopped before it deleted the file).
+- name: Check the OpenBao root token
+  ansible.builtin.uri:
+    url: "{{ openbao_url }}/v1/auth/token/lookup-self"
+    headers:
+      X-Vault-Token: "{{ lookup('ansible.builtin.file', secrets_dir ~ '/openbao_root_token') }}"
+    status_code: [200, 403]
+  register: openbao_root_check
+  retries: 10  # just after unsealing it may need a moment
+  delay: 3
+  until: openbao_root_check.status in [200, 403]
+  when: openbao_root_file.stat.exists
+  no_log: true
+
+- name: Remember if the root token works
+  ansible.builtin.set_fact:
+    openbao_root_ok: "{{ openbao_root_file.stat.exists and openbao_root_check.status == 200 }}"
+
+- name: Delete the revoked root token file
+  ansible.builtin.file:
+    path: "{{ secrets_dir }}/openbao_root_token"
+    state: absent
+  delegate_to: localhost
+  become: false
+  when: openbao_root_file.stat.exists and not openbao_root_ok
+
+- name: Log in to OpenBao
+  ansible.builtin.uri:
+    url: "{{ openbao_url }}/v1/auth/userpass/login/admin"
+    method: POST
+    body_format: json
+    body: { password: "{{ openbao_admin_password }}" }
+  register: openbao_login
+  retries: 10  # just after unsealing it may need a moment
+  delay: 3
+  until: openbao_login.status == 200
+  when: not openbao_root_ok
+  no_log: true
+
+- name: Remember the OpenBao token
+  ansible.builtin.set_fact:
+    openbao_token: >-
+      {{ lookup('ansible.builtin.file', secrets_dir ~ '/openbao_root_token') if openbao_root_ok
+      else openbao_login.json.auth.client_token }}
+  no_log: true
+
 # A place for your secrets: secret/<path>, with versions (KV version 2).
 - name: Check OpenBao secret engines
   ansible.builtin.uri:
     url: "{{ openbao_url }}/v1/sys/mounts"
     headers:
-      X-Vault-Token: "{{ lookup('ansible.builtin.file', secrets_dir ~ '/openbao_root_token') }}"
+      X-Vault-Token: "{{ openbao_token }}"
   register: openbao_mounts
   retries: 10  # just after unsealing it may need a moment
   delay: 3
@@ -114,12 +171,115 @@
     url: "{{ openbao_url }}/v1/sys/mounts/secret"
     method: POST
     headers:
-      X-Vault-Token: "{{ lookup('ansible.builtin.file', secrets_dir ~ '/openbao_root_token') }}"
+      X-Vault-Token: "{{ openbao_token }}"
     body_format: json
     body: { type: kv, options: { version: "2" } }
     status_code: [200, 204]
   when: "'secret/' not in openbao_mounts.json.data | default({})"
   changed_when: true
+  no_log: true
+
+- name: Make the admin user and revoke the root token
+  when: openbao_root_ok
+  block:
+    - name: Write the admin policy
+      ansible.builtin.uri:
+        url: "{{ openbao_url }}/v1/sys/policies/acl/admin"
+        method: PUT
+        headers:
+          X-Vault-Token: "{{ openbao_token }}"
+        body_format: json
+        body:
+          policy: |
+            # Everything, like the root token, but with a login that can be changed and tokens that expire.
+            path "*" {
+              capabilities = ["create", "read", "update", "patch", "delete", "list", "sudo"]
+            }
+        status_code: [200, 204]
+      changed_when: true
+      no_log: true
+
+    - name: Read OpenBao's logins
+      ansible.builtin.uri:
+        url: "{{ openbao_url }}/v1/sys/auth"
+        headers:
+          X-Vault-Token: "{{ openbao_token }}"
+      register: openbao_auth
+      no_log: true
+
+    - name: Turn on logins with user and password
+      ansible.builtin.uri:
+        url: "{{ openbao_url }}/v1/sys/auth/userpass"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ openbao_token }}"
+        body_format: json
+        body: { type: userpass }
+        status_code: [200, 204]
+      when: "'userpass/' not in openbao_auth.json.data | default({})"
+      changed_when: true
+      no_log: true
+
+    - name: Make the admin user
+      ansible.builtin.uri:
+        url: "{{ openbao_url }}/v1/auth/userpass/users/admin"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ openbao_token }}"
+        body_format: json
+        body: { password: "{{ openbao_admin_password }}", token_policies: [admin] }
+        status_code: [200, 204]
+      changed_when: true
+      no_log: true
+
+    # Only when the admin user surely works does the root token go.
+    - name: Check the admin user can log in
+      ansible.builtin.uri:
+        url: "{{ openbao_url }}/v1/auth/userpass/login/admin"
+        method: POST
+        body_format: json
+        body: { password: "{{ openbao_admin_password }}" }
+      register: openbao_admin_login
+      no_log: true
+
+    - name: Check the admin user may do everything
+      ansible.builtin.uri:
+        url: "{{ openbao_url }}/v1/sys/mounts"
+        headers:
+          X-Vault-Token: "{{ openbao_admin_login.json.auth.client_token }}"
+      no_log: true
+
+    - name: Revoke the root token
+      ansible.builtin.uri:
+        url: "{{ openbao_url }}/v1/auth/token/revoke-self"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ openbao_token }}"
+        status_code: [200, 204]
+      changed_when: true
+      no_log: true
+
+    - name: Delete the root token file
+      ansible.builtin.file:
+        path: "{{ secrets_dir }}/openbao_root_token"
+        state: absent
+      delegate_to: localhost
+      become: false
+
+    - name: Use the admin user from now on
+      ansible.builtin.set_fact:
+        openbao_token: "{{ openbao_admin_login.json.auth.client_token }}"
+      no_log: true
+
+# The installer's token is not needed any more.
+- name: Log the installer out of OpenBao
+  ansible.builtin.uri:
+    url: "{{ openbao_url }}/v1/auth/token/revoke-self"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ openbao_token }}"
+    status_code: [200, 204]
+  changed_when: false
   no_log: true
 
 # Its own login (a token), and the admin login when Authelia or Keycloak is installed. Programs use

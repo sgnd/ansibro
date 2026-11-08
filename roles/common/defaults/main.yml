@@ -52,7 +52,7 @@ common_app_ports:
   victoria: [8428, 9428, 8880, 9093, 3000]  # metrics, logs, rules, alerts, Grafana
 # All ports this server opens to the other cluster servers:
 #   5000 registry (managers), the Swarm or k3s ports, 8082 Traefik metrics (for monitoring),
-#   12379-12380 etcd for Patroni (managers), 9100 9280 9598 9187 9104 9121 monitoring agents
+#   9100 9280 9598 9187 9104 9121 monitoring agents
 #   (node exporter, cAdvisor, Vector, PostgreSQL/MariaDB/Redis exporters),
 #   45876 Beszel agent, and the ports of the apps on this server (common_app_ports).
 #   The agent ports are the same as in roles/observability/defaults/main.yml.
@@ -60,11 +60,22 @@ common_cluster_tcp_ports: >-
   {{ (([registry_port] if inventory_hostname in groups['managers'] else [])
   + (common_swarm_tcp_ports if orchestrator == 'swarm' else common_k3s_tcp_ports)
   + ([8082] if monitoring_app and 'traefik' in apps and inventory_hostname in traefik_nodes else [])
-  + ([12379, 12380] if postgres_patroni and inventory_hostname in groups['managers'] else [])
   + ([9100, 9280, 9598, 9187, 9104, 9121] if monitoring_app else [])
   + ([45876] if 'beszel' in apps else [])
   + (node_apps | map('extract', common_app_ports) | flatten))
   | unique | sort }}
+# etcd for Patroni (on the managers, with PostgreSQL on 2 or more servers) has its own rules, not
+# common_cluster_tcp_ports: its peer port 12380 is open only to the other managers, its client port
+# 12379 only to the PostgreSQL servers. No container reaches either (see tasks/firewall.yml).
+common_etcd: "{{ postgres_patroni and inventory_hostname in groups['managers'] }}"
+common_etcd_peer_ips: >-
+  {{ groups['managers'] | difference([inventory_hostname]) | map('extract', hostvars, 'node_ip') | sort
+  if common_etcd else [] }}
+common_etcd_client_ips: >-
+  {{ app_nodes.postgres | default([]) | difference([inventory_hostname]) | map('extract', hostvars, 'node_ip') | sort
+  if common_etcd else [] }}
+common_etcd_ports: [12379, 12380]
+
 # Swarm: managers 2377, node discovery 7946 and the overlay networks 4789/udp.
 common_swarm_tcp_ports: >-
   {{ ([2377] if inventory_hostname in groups['managers'] else [])

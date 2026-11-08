@@ -27,7 +27,7 @@ spec:
       nodeSelector: { kubernetes.io/hostname: {{ swarm_leader }} }
       containers:
         - name: portainer
-          image: {{ registry_addr }}/portainer:{{ images.portainer.tag }}
+          image: {{ image_ref.portainer }}
           args: [--admin-password-file, /run/admin_password]
           ports: [{ containerPort: 9000 }]
           volumeMounts:

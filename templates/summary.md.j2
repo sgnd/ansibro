@@ -40,16 +40,17 @@ Beszel) ask for the admin login first ({{ admin_login }}), then for their own.
 
 ## Passwords
 
-From `state/secrets/`. To change one:
+Each password is a file in `state/secrets/` (this summary does not repeat them). To read one:
+`scripts/state.sh open` (when `state/` is encrypted), then `cat state/secrets/<file>`, then
+`scripts/state.sh close`. To change one:
 
 - traefik_admin, redis, valkey, nats, rustfs_access_key, rustfs_secret_key, monitor, alertmanager, victoria_admin_key
   and the files that end in `_db`: change the file, then run `./install.sh` again. The installer sets these in the apps every run.
-- mariadb, keycloak_admin, beszel_admin, openbao_root_token, registry and restic: the installer logs in with these.
-  Change the password in the app and in the file at the same time, then run `./install.sh` again.
+- mariadb, keycloak_admin, beszel_admin, openbao_admin, registry, etcd_root and the files that start with `restic_`:
+  the installer logs in with these. Change the password in the app and in the file at the same time, then run `./install.sh` again.
 - The others: change it in the app, then write the new one in the file too.
 
-| File | Password |
-|------|----------|
+The files:
 {% for file in query('ansible.builtin.fileglob', secrets_dir ~ '/*') | sort %}
-| {{ file | basename }} | `{{ lookup('ansible.builtin.file', file) }}` |
+- {{ file | basename }}
 {% endfor %}

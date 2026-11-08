@@ -31,6 +31,8 @@ entryPoints:
 {% endif %}
 providers:
   swarm:
+    # Through socket-proxy (stack.yml), which lets Traefik only read the swarm.
+    endpoint: tcp://socket-proxy:2375
     exposedByDefault: false
     network: public
     refreshSeconds: 5   # how often Traefik looks for new swarm apps (default 15)

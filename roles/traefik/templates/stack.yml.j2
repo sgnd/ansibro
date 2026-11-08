@@ -1,6 +1,6 @@
 services:
   traefik:
-    image: {{ registry_addr }}/traefik:{{ images.traefik.tag }}
+    image: {{ image_ref.traefik }}
     # Host mode keeps the real client IP. Point DNS to {{ traefik_nodes | join(', ') }}.
     ports:
       - { target: 80, published: 80, protocol: tcp, mode: host }
@@ -9,10 +9,10 @@ services:
       - { target: 8082, published: 8082, protocol: tcp, mode: host }  # metrics, for the monitoring server
 {% endif %}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - {{ traefik_dir }}:/etc/traefik
     networks:
       - public
+      - docker  # only to reach socket-proxy
 {% if 'kong' in apps %}
       - kong
 {% endif %}
@@ -39,9 +39,39 @@ services:
         traefik.http.routers.dashboard.middlewares: admin@file
         traefik.http.services.dashboard.loadbalancer.server.port: "8080"
 
+  # Traefik reads the swarm through this proxy, not the Docker socket: only reading, and only some
+  # parts of Docker's API (traefik_socket_proxy_get). It runs on the managers (the swarm's API is there)
+  # and answers only Traefik's tasks. No network to the outside, a read-only file system, no privileges.
+  socket-proxy:
+    image: {{ image_ref['socket-proxy'] }}
+    user: "0:0"  # to open the Docker socket; with every capability dropped
+    read_only: true
+    cap_drop: [ALL]
+    command:
+      - -listenip=0.0.0.0
+      - -allowfrom=tasks.traefik_traefik
+      - -allowGET={{ traefik_socket_proxy_get | replace('$', '$$') }}  # $$: a $ for Docker Compose
+      - -allowHEAD=^/(v[0-9.]+/)?_ping$$
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - docker
+    deploy:
+      mode: global
+      placement:
+        constraints:
+          - node.role == manager
+
 networks:
   public:
     external: true
+  # Only Traefik and socket-proxy are on it (a stack's network takes no other containers), and it has
+  # no way out (internal).
+  docker:
+    driver: overlay
+    internal: true
+    driver_opts:
+      com.docker.network.driver.mtu: "{{ swarm_mtu }}"
 {% if 'kong' in apps %}
   kong:
     external: true

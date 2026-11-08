@@ -1,6 +1,6 @@
 services:
   mariadb:
-    image: {{ registry_addr }}/mariadb:{{ images.mariadb.tag }}
+    image: {{ image_ref.mariadb }}
     container_name: mariadb
     restart: always
     # Host network: the firewall decides who can connect.

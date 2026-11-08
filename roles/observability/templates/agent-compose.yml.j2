@@ -2,7 +2,7 @@
 # Host network: the firewall decides who can connect. They listen on {{ node_ip }} only.
 services:
   node-exporter:
-    image: {{ registry_addr }}/node-exporter:{{ images['node-exporter'].tag }}
+    image: {{ image_ref['node-exporter'] }}
     container_name: node-exporter
     restart: always
     network_mode: host
@@ -17,7 +17,7 @@ services:
       - /:/host:ro,rslave
 
   cadvisor:
-    image: {{ registry_addr }}/cadvisor:{{ images.cadvisor.tag }}
+    image: {{ image_ref.cadvisor }}
     container_name: cadvisor
     restart: always
     network_mode: host
@@ -52,26 +52,50 @@ services:
       - /dev/disk:/dev/disk:ro
 
   vector:
-    image: {{ registry_addr }}/vector:{{ images.vector.tag }}
+    image: {{ image_ref.vector }}
     container_name: vector
     restart: always
     network_mode: host
     command: [--config, /etc/vector/vector.yaml]
+    environment:
+      # The containers' logs come through docker-proxy below, which lets Vector only read them.
+      DOCKER_HOST: unix:///run/docker-proxy/docker.sock
+    depends_on: [docker-proxy]
     volumes:
       - ./vector.yaml:/etc/vector/vector.yaml:ro
       # Logs wait here while the monitoring server is down, and are sent later.
       - ./vector-data:/var/lib/vector
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/ansibro-docker-proxy/vector:/run/docker-proxy:ro
 {% if orchestrator == 'k3s' and inventory_hostname in groups['swarm'] %}
       - /var/log/pods:/var/log/pods:ro  # the logs of k3s pods
 {% endif %}
       - /var/log/journal:/var/log/journal:ro
       - /run/log/journal:/run/log/journal:ro
       - /etc/machine-id:/etc/machine-id:ro
+
+  # In front of the Docker socket for Vector: it may only list the containers, read their settings
+  # and logs, and follow Docker's events. Its socket is in a folder only Vector gets, it has no network,
+  # a read-only file system and no privileges.
+  docker-proxy:
+    image: {{ image_ref['socket-proxy'] }}
+    container_name: vector-docker-proxy
+    restart: always
+    network_mode: none
+    user: "0:0"  # to open the Docker socket; with every capability dropped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command:
+      - -proxysocketendpoint=/run/docker-proxy/docker.sock
+      - -allowGET={{ observability_socket_proxy_get | replace('$', '$$') }}  # $$: a $ for Docker Compose
+      - -allowHEAD=^/(v[0-9.]+/)?_ping$$
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/ansibro-docker-proxy/vector:/run/docker-proxy
 {% if 'postgres' in node_apps %}
 
   postgres-exporter:
-    image: {{ registry_addr }}/postgres-exporter:{{ images['postgres-exporter'].tag }}
+    image: {{ image_ref['postgres-exporter'] }}
     container_name: postgres-exporter
     restart: always
     network_mode: host
@@ -84,7 +108,7 @@ services:
 {% if 'mariadb' in node_apps %}
 
   mysqld-exporter:
-    image: {{ registry_addr }}/mysqld-exporter:{{ images['mysqld-exporter'].tag }}
+    image: {{ image_ref['mysqld-exporter'] }}
     container_name: mysqld-exporter
     restart: always
     network_mode: host
@@ -99,7 +123,7 @@ services:
 
   # Works for Redis and Valkey.
   redis-exporter:
-    image: {{ registry_addr }}/redis-exporter:{{ images['redis-exporter'].tag }}
+    image: {{ image_ref['redis-exporter'] }}
     container_name: redis-exporter
     restart: always
     network_mode: host

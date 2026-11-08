@@ -6,7 +6,7 @@
     name: registry
     tasks_from: mirror
   vars:
-    registry_mirror_images: [traefik]
+    registry_mirror_images: [traefik, socket-proxy]
 
 - name: Write Traefik stack
   ansible.builtin.template:

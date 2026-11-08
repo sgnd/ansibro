@@ -2,6 +2,88 @@
 
 ## Unreleased
 
+Security fixes that change a running cluster (the second part of the review). The next `./install.sh`
+applies them; read **Upgrade notes** below first.
+- etcd for Patroni (PostgreSQL on 2 or more servers) asks for a login: user `patroni`
+  (`state/secrets/etcd_patroni`) may only read and write Patroni's keys, `root` (`state/secrets/etcd_root`)
+  is for the installer. Before, any container could change who the primary is, or Patroni's settings (and
+  with them run commands as PostgreSQL). The firewall opens etcd's peer port 12380 only to the other
+  managers and its client port 12379 only to the PostgreSQL servers (before: to every server), and closes
+  both to every container: on the server itself, and a `DOCKER-USER` rule drops a container's call to
+  them before it leaves its server. On a running cluster Patroni gets the login first, then etcd turns it
+  on with Patroni paused; if a Patroni cannot log in within a minute, etcd turns it off again and the
+  install stops (PostgreSQL keeps running). Not in this change: TLS for etcd (as for the other apps: use
+  a private network or `wireguard: true`).
+- A change to etcd restarts its members one at a time (before: all together, so Patroni lost etcd for a
+  moment). A change to PostgreSQL with Patroni restarts the servers one at a time, the primary last,
+  after a switchover to a replica that is up to date (before: all together, and the database was down
+  until Patroni picked a primary).
+- Backups: each server has its own restic repository, `<backup.repository>/servers/<server name>`, and
+  its own password (`state/secrets/restic_<server name>`). Before, every server had the password of the
+  one shared repository, so it could read the other servers' backups, among them the first manager's
+  copy of `config.yml` and `state/secrets/`, and add backups in another server's name. That copy is now
+  encrypted on the installer machine with age, for the key of `state/` (`installer.tar.age`); no server
+  holds it readable (without the key there is no copy, and the install warns). A restore takes only a
+  backup with this server's name and the `ansibro` tag, holding only the folders `ansibro-backup` saves,
+  restores only those folders (not `/`), and checks every file (`--verify`). The docs explain how to stop
+  a broken-into server from deleting the backups (S3 versioning and Object Lock, or rest-server
+  `--append-only`).
+- Apps run their images by digest (`registry.ansibro:5000/<name>:<tag>@sha256:...`) in Swarm stacks,
+  Compose files and k3s manifests, not only by tag. The installer reads the digest right after it pushed
+  the image itself and keeps it in `state/images.yml`. On every run each registry must still have that
+  image: an image pushed under the same tag by someone else stops the install (`-e registry_repush=true`
+  pushes the right ones again). Before, anyone with the registry login (every server has it) could
+  replace an image that the servers then ran.
+- The registry is read-only (`storage.maintenance.readonly`, and it no longer allows deletes). The
+  installer opens it only when it must push an image, and closes it at the end (also after a failed
+  install, with `unmute.yml`). To push your own images: `sudo ansibro-registry open` on a manager
+  (1 hour, or `open 20min`; `close` ends it now). Each open and close restarts the registry: for a second
+  or two the servers cannot pull.
+- Traefik (it faces the internet), Vector and the Beszel agent no longer mount the Docker socket: they
+  read Docker through [socket-proxy](https://github.com/wollomatic/socket-proxy) 1.13.2, which allows only
+  GET on the few parts of the API each one needs. A Traefik, Vector or Beszel agent that was broken into
+  can no longer start a container (and with it become root on the server). Traefik's proxy runs on the
+  managers on a private overlay network and answers only Traefik; the agents' proxy talks to them through
+  a Unix socket only they get, and has no network. Portainer and Swarmpit keep the Docker socket
+  (managing containers is their job), and so does cAdvisor (privileged anyway).
+- Keycloak (database password, first admin password), its oauth2-proxy (client and cookie secret) and
+  Kong (database password) get their passwords as swarm secrets, not in their settings, so whoever may
+  read the swarm's services does not see them. (k3s already used Kubernetes secrets.) Portainer's agent
+  secret stays in its settings: Portainer has no other way.
+- `state/` is kept encrypted by default: a real `./install.sh` makes the key `~/.config/ansibro/age.key`
+  when there is none (on a Mac it installs age with brew), and says to save it in a password manager.
+  Without age it warns and goes on. `ANSIBRO_PLAIN_STATE=1` keeps `state/` unencrypted.
+- `state/summary.md` names the file of each password, but no longer repeats the passwords.
+- OpenBao: the installer makes a user `admin` (method Username, `state/secrets/openbao_admin`, policy
+  `admin`), checks it works, then revokes the root token from the setup and deletes
+  `state/secrets/openbao_root_token` (a root token never expires). [docs/apps.md](docs/apps.md#openbao)
+  says how to make a root token with the unseal key, and how to split the unseal key between people.
+
+Upgrade notes (to try first on a lab copy of your cluster, see the lab test plan in the pull request):
+- The first run is a short maintenance window. Every app restarts once (its image reference changes to
+  the digest). With Patroni, writes stop for a few seconds once (the switchover). Traefik restarts, so
+  the web pages are down for a few seconds on each server it runs on. The registry restarts two or three
+  times (pulls fail for a second or two each time).
+- The first run pushes every image into the registry again once (from the internet, or the offline
+  bundle), so each digest comes from the installer's own push. Online this needs Docker Hub (or
+  `mirror.gcr.io`) and takes a few minutes; offline it uses the bundle of this version.
+- The first backup to the new repositories copies everything again: it starts during the install, but the
+  install does not wait for it (`sudo systemctl status ansibro-backup` shows it). Until you delete the old
+  shared repository, the storage holds both. Restore a backup from before the upgrade with
+  `-e restore=true -e restore_legacy=true`.
+- New in `state/secrets/`: `etcd_root`, `etcd_patroni`, `openbao_admin`, `restic_<server name>` (one per
+  server). Gone: `openbao_root_token`. Kept: `restic` (the old shared repository). New: `state/images.yml`
+  (digests, no secret). `state/` is now `state.age`: read a password with `scripts/state.sh open`.
+- OpenBao login: user `admin`, not the root token.
+- Pushing your own images: `sudo ansibro-registry open` first.
+- Going back to 1.3 after this upgrade: first turn etcd's login off
+  (`sudo docker exec -it etcd etcdctl --endpoints=http://127.0.0.1:12379 --user root auth disable` on a
+  manager, password `state/secrets/etcd_root`), and make an OpenBao root token
+  ([docs/apps.md](docs/apps.md#openbao)) into `state/secrets/openbao_root_token`: 1.3 needs both. Every
+  app restarts once again (tags instead of digests); the registry becomes writable again; the backups go
+  to the old shared repository again (it is still valid). On each server an old `vector-docker-proxy` or
+  `beszel-docker-proxy` container may keep running: remove it with `sudo docker rm -f <name>`.
+
 Security fixes from a review. Each one also applies to a running cluster at the next `./install.sh`.
 - k3s: workers join with their own agent token (`state/secrets/k3s_agent_token`), not the server token.
   With the server token a worker could read the cluster's CA keys and take over the cluster. On a running

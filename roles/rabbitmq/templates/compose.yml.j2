@@ -1,6 +1,6 @@
 services:
   rabbitmq:
-    image: {{ registry_addr }}/rabbitmq:{{ images.rabbitmq.tag }}
+    image: {{ image_ref.rabbitmq }}
     container_name: rabbitmq
     restart: always
     # Host network: the firewall decides who can connect.

@@ -1,0 +1,106 @@
+# etcd's users: root (the installer manages the users with it) and patroni (may read and write only
+# Patroni's keys). Runs once, on the first manager. etcd's JSON API takes names as text, keys as base64.
+
+- name: Ask etcd if its login is on
+  ansible.builtin.uri:
+    url: "{{ etcd_api }}/auth/status"
+    method: POST
+    body_format: json
+    body: {}
+  register: etcd_auth_status
+
+# With the login on, only root may manage the users.
+- name: Log in to etcd as root
+  ansible.builtin.uri:
+    url: "{{ etcd_api }}/auth/authenticate"
+    method: POST
+    body_format: json
+    body: { name: root, password: "{{ etcd_root_password }}" }
+    status_code: [200, 400, 401]
+  register: etcd_root_login
+  when: etcd_auth_status.json.enabled | default(false)
+  no_log: true
+
+- name: Stop if the etcd root password does not match
+  ansible.builtin.assert:
+    that: etcd_root_login.status == 200
+    fail_msg: >-
+      etcd refused the root password in state/secrets/etcd_root. Is this the state/ folder of this
+      cluster? (etcd said: {{ etcd_root_login.json.message | default(etcd_root_login.msg) }})
+  when: etcd_auth_status.json.enabled | default(false)
+
+- name: Remember the etcd login
+  ansible.builtin.set_fact:
+    etcd_headers: "{{ {'Authorization': etcd_root_login.json.token} if etcd_auth_status.json.enabled | default(false) else {} }}"
+  no_log: true
+
+- name: List etcd's users
+  ansible.builtin.uri:
+    url: "{{ etcd_api }}/auth/user/list"
+    method: POST
+    headers: "{{ etcd_headers }}"
+    body_format: json
+    body: {}
+  register: etcd_users
+
+- name: Add etcd's users
+  ansible.builtin.uri:
+    url: "{{ etcd_api }}/auth/user/add"
+    method: POST
+    headers: "{{ etcd_headers }}"
+    body_format: json
+    body: { name: "{{ item.name }}", password: "{{ item.password }}" }
+  loop:
+    - { name: root, password: "{{ etcd_root_password }}" }
+    - { name: patroni, password: "{{ etcd_patroni_password }}" }
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.name not in etcd_users.json.users | default([])
+  changed_when: true
+  no_log: true
+
+# A role that may read and write Patroni's keys only.
+- name: Read etcd's patroni role
+  ansible.builtin.uri:
+    url: "{{ etcd_api }}/auth/role/get"
+    method: POST
+    headers: "{{ etcd_headers }}"
+    body_format: json
+    body: { role: patroni }
+    status_code: [200, 400, 404]  # 400 or 404: there is no such role yet
+  register: etcd_patroni_role
+
+- name: Add etcd's patroni role
+  ansible.builtin.uri:
+    url: "{{ etcd_api }}/auth/role/add"
+    method: POST
+    headers: "{{ etcd_headers }}"
+    body_format: json
+    body: { name: patroni }
+  when: etcd_patroni_role.status != 200
+  changed_when: true
+
+- name: Let the patroni role read and write Patroni's keys
+  ansible.builtin.uri:
+    url: "{{ etcd_api }}/auth/role/grant"
+    method: POST
+    headers: "{{ etcd_headers }}"
+    body_format: json
+    body:
+      name: patroni
+      perm: { permType: READWRITE, key: "{{ etcd_patroni_prefix | b64encode }}", range_end: "{{ etcd_patroni_prefix_end | b64encode }}" }
+  when: >-
+    etcd_patroni_role.status != 200 or (etcd_patroni_prefix | b64encode)
+    not in etcd_patroni_role.json.perm | default([]) | map(attribute='key') | list
+  changed_when: true
+
+# Granting a role a user already has changes nothing in etcd.
+- name: Give the users their roles
+  ansible.builtin.uri:
+    url: "{{ etcd_api }}/auth/user/grant"
+    method: POST
+    headers: "{{ etcd_headers }}"
+    body_format: json
+    body: { user: "{{ item }}", role: "{{ item }}" }
+  loop: [root, patroni]
+  changed_when: false

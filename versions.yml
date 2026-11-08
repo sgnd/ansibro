@@ -57,6 +57,11 @@ images:
     repo: quay.io/coreos/etcd
     tag: v3.6.16
     digest: sha256:a9c7cc12156f4b26ca41f0b57ba5b76c45037ff6c1e47ea3d68cb7908d48a965
+  # In front of the Docker socket for Traefik and the monitoring agents: lets them only read (roles/traefik).
+  socket-proxy:
+    repo: docker.io/wollomatic/socket-proxy
+    tag: 1.13.2
+    digest: sha256:ff95d6ff6c27853005ef85eb8f4ab5923dc3d2f1e055f98fb6aeeaceec3fe848
   haproxy:
     repo: docker.io/library/haproxy
     tag: 3.2.26

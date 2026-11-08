@@ -34,6 +34,7 @@ Their source code is at the links below and at https://launchpad.net/ubuntu (apt
 | Patroni (in Spilo) | MIT | https://github.com/patroni/patroni |
 | etcd (for Patroni) | Apache-2.0 | https://github.com/etcd-io/etcd |
 | HAProxy (database-proxy) | GPL-2.0 | https://www.haproxy.org |
+| socket-proxy (in front of the Docker socket) | MIT | https://github.com/wollomatic/socket-proxy |
 | oauth2-proxy (with keycloak) | MIT | https://github.com/oauth2-proxy/oauth2-proxy |
 | PostgreSQL | PostgreSQL | https://www.postgresql.org |
 | MariaDB | GPL-2.0 | https://github.com/MariaDB/server |

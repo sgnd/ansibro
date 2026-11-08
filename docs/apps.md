@@ -4,8 +4,9 @@ Where the passwords are, what each app needs, and notes for some apps. The list 
 
 ## Where the passwords are
 
-All addresses, users and passwords are in `state/summary.md`. Each password is also a file in
-`state/secrets/`. (If `state/` is encrypted: `scripts/state.sh open` first, `scripts/state.sh close` after.)
+All addresses and users are in `state/summary.md`. Each password is a file in `state/secrets/`
+(the summary names the file, it does not repeat the password). `state/` is kept encrypted: run
+`scripts/state.sh open` first, and `scripts/state.sh close` after.
 For developers: the list is in [`catalog.yml`](../catalog.yml).
 `state/handover.json` has the same facts for tools that write handover documents, without the passwords.
 
@@ -14,6 +15,13 @@ For developers: the list is in [`catalog.yml`](../catalog.yml).
 - Every app with a web page needs traefik. (rabbitmq, nats, rustfs and openbao work without it, but then have no web page.)
 - kong needs postgres. keycloak needs a database. authelia needs a database and a cache.
   The installer creates their databases for them.
+
+## Portainer and Swarmpit: full control of Docker
+
+Managing containers is their job, so they use the Docker socket itself: whoever is logged in to them
+controls every server of the swarm. Keep `admin_allow_from` set, and use Authelia or Keycloak (then they
+ask for that login first). The other apps that read Docker (Traefik, Vector, the Beszel agent) only
+read it, through a socket proxy (see [How it works](how-it-works.md#good-to-know)).
 
 ## Swarmpit: ready to use
 
@@ -77,10 +85,28 @@ them, so run only containers you trust.
 
 ## OpenBao
 
-OpenBao keeps secrets (passwords, API keys) for your apps. Log in at `https://openbao.<domain>` with the
-root token, the admin password (`state/secrets/openbao_root_token`). For each app, make a token or a user
-with a policy (the list of secrets it may read). Apps read secrets from
-`http://<server ip>:8200/v1/secret/data/<path>`.
+OpenBao keeps secrets (passwords, API keys) for your apps. Log in at `https://openbao.<domain>` with
+method **Username**, user `admin` and the password in `state/secrets/openbao_admin` (policy `admin`: it
+may do everything). For each app, make a token or a user with a policy (the list of secrets it may read).
+Apps read secrets from `http://<server ip>:8200/v1/secret/data/<path>`.
+
+There is no root token: the installer uses the one from the setup only to make the admin user, then
+revokes it (a root token never expires). If you ever need one (for example the admin user is broken),
+make one with the unseal key, on the OpenBao server:
+
+```bash
+# on the OpenBao server, after ssh. Each command prints what the next one needs.
+sudo docker exec -it openbao bao operator generate-root -address=http://<server ip>:8200 -init
+#   -> Nonce and OTP
+sudo docker exec -it openbao bao operator generate-root -address=http://<server ip>:8200 -nonce=<Nonce>
+#   -> asks for the unseal key (state/secrets/openbao_unseal_key), prints the Encoded Token
+sudo docker exec -it openbao bao operator generate-root -address=http://<server ip>:8200 -decode=<Encoded Token> -otp=<OTP>
+#   -> the root token. Revoke it when you are done: bao token revoke -self
+```
+
+The unseal key is one key. The installer needs it after a restart (see below). To split it between
+people (for example 3 of 5 needed), use `bao operator rekey`, and keep the parts with those people:
+then the installer can no longer unseal it, you unseal it on the web page.
 
 After a restart, OpenBao is sealed (locked: it gives out no secrets). To unseal it,
 run `./install.sh` again (it unseals it with `state/secrets/openbao_unseal_key`), or unseal it on

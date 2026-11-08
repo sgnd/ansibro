@@ -1,6 +1,6 @@
 services:
   kong:
-    image: {{ registry_addr }}/kong:{{ images.kong.tag }}
+    image: {{ image_ref.kong }}
     env_file: {{ kong_dir }}/kong.env
     environment:
       KONG_PROXY_LISTEN: 0.0.0.0:8000
@@ -20,6 +20,9 @@ services:
       KONG_NGINX_ADMIN_INCLUDE: /etc/kong/admin-api.conf
     configs:
       - { source: admin-api, target: /etc/kong/admin-api.conf }
+    # The database password (KONG_PG_PASSWORD_FILE in kong.env).
+    secrets:
+      - { source: db-password, target: db_password }
     healthcheck:
       test: ["CMD", "kong", "health"]
       interval: 10s
@@ -61,6 +64,12 @@ configs:
   admin-api:
     name: kong-admin-api-{{ kong_admin_conf.checksum[:12] }}
     file: ./admin-api.conf
+
+secrets:
+  # The name changes with the file, so a new password reaches Kong.
+  db-password:
+    name: kong-db-password-{{ kong_db_secret.checksum[:12] }}
+    file: ./secrets/db_password
 
 networks:
   kong:

@@ -1,0 +1,55 @@
+# Make the registry on every manager writable (registry_mode: open) or read-only again (close).
+# The installer opens it only when it must push an image (tasks/mirror.yml), so an install with
+# nothing new leaves it alone. site.yml closes it at the end, and unmute.yml after a failed install.
+# Each change restarts the registry: for a second or two the servers cannot pull.
+# Input: registry_mode (open or close)
+
+- name: Look for the registry on the managers
+  ansible.builtin.stat:
+    path: "{{ registry_dir }}/config"
+  delegate_to: "{{ item }}"
+  loop: "{{ groups['managers'] }}"
+  register: registry_mode_here
+  run_once: true
+
+- name: Make the registry {{ 'writable' if registry_mode == 'open' else 'read-only' }}
+  ansible.builtin.template:
+    src: config.yml.j2
+    dest: "{{ registry_dir }}/config/config.yml"
+    mode: "0644"
+  delegate_to: "{{ item.item }}"
+  loop: "{{ registry_mode_here.results | selectattr('stat.exists') | list }}"
+  loop_control:
+    label: "{{ item.item }}"
+  vars:
+    registry_readonly: "{{ registry_mode != 'open' }}"
+  register: registry_mode_set
+  run_once: true
+
+# The registry reads its config only when it starts.
+- name: Restart the registry where it changed
+  ansible.builtin.command:
+    cmd: docker compose restart
+    chdir: "{{ registry_dir }}"
+  delegate_to: "{{ item.item.item }}"
+  loop: "{{ registry_mode_set.results | selectattr('changed') | list }}"
+  loop_control:
+    label: "{{ item.item.item }}"
+  run_once: true
+  changed_when: true
+
+# 401: it answers (and asks for the login).
+- name: Wait for the registry
+  ansible.builtin.uri:
+    url: "https://{{ hostvars[item.item.item].node_ip }}:{{ registry_port }}/v2/"
+    ca_path: "/etc/docker/certs.d/{{ registry_addr }}/ca.crt"
+    status_code: [401]
+  delegate_to: "{{ item.item.item }}"
+  loop: "{{ registry_mode_set.results | selectattr('changed') | list }}"
+  loop_control:
+    label: "{{ item.item.item }}"
+  register: registry_mode_up
+  until: registry_mode_up.status == 401
+  retries: 15
+  delay: 2
+  run_once: true

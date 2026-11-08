@@ -1,6 +1,6 @@
 services:
   beszel-agent:
-    image: {{ registry_addr }}/beszel-agent:{{ images['beszel-agent'].tag }}
+    image: {{ image_ref['beszel-agent'] }}
     container_name: beszel-agent
     restart: always
     # Host network: it reports this server's real network stats.
@@ -9,5 +9,28 @@ services:
       LISTEN: "{{ beszel_agent_port }}"
 {# to_json quotes the key, so it stays one value (tasks/agent.yml checks it too). #}
       KEY: {{ beszel_hub_key.content | b64decode | trim | to_json }}
+      # The containers' stats come through docker-proxy below, which lets the agent only read them.
+      DOCKER_HOST: unix:///run/docker-proxy/docker.sock
+    depends_on: [docker-proxy]
+    volumes:
+      - /run/ansibro-docker-proxy/beszel:/run/docker-proxy:ro
+
+  # In front of the Docker socket for the agent: it may only list the containers and read their
+  # settings, stats and logs. Its socket is in a folder only the agent gets, it has no network, a
+  # read-only file system and no privileges.
+  docker-proxy:
+    image: {{ image_ref['socket-proxy'] }}
+    container_name: beszel-docker-proxy
+    restart: always
+    network_mode: none
+    user: "0:0"  # to open the Docker socket; with every capability dropped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command:
+      - -proxysocketendpoint=/run/docker-proxy/docker.sock
+      - -allowGET={{ beszel_socket_proxy_get | replace('$', '$$') }}  # $$: a $ for Docker Compose
+      - -allowHEAD=^/(v[0-9.]+/)?_ping$$
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/ansibro-docker-proxy/beszel:/run/docker-proxy

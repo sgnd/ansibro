@@ -215,6 +215,17 @@
       loop_control:
         loop_var: app
 
+# etcd asks for a login from now on: only now does every Patroni have its password (roles/etcd/tasks/auth.yml).
+- name: PostgreSQL cluster store login
+  hosts: managers[0]
+  gather_facts: false
+  tasks:
+    - name: Turn on etcd's login
+      ansible.builtin.include_role:
+        name: etcd
+        tasks_from: auth
+      when: postgres_patroni
+
 - name: Beszel agents
   hosts: all
   tasks:
@@ -275,6 +286,18 @@
       ansible.builtin.include_role:
         name: backup
       when: backup is defined
+
+# The registry takes pushes only while the installer pushes images (roles/registry/tasks/mode.yml).
+- name: Registry read-only
+  hosts: managers[0]
+  gather_facts: false
+  tasks:
+    - name: Make the registry read-only again
+      ansible.builtin.include_role:
+        name: registry
+        tasks_from: mode
+      vars:
+        registry_mode: close
 
 - name: Summary
   hosts: managers[0]

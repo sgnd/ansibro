@@ -163,8 +163,11 @@ if ! "$venv/bin/python" inventory.py "${check[@]}" >/dev/null; then
   exit 1
 fi
 
-# state/ holds the passwords. If it is kept encrypted (see scripts/state.sh), open it now
-# and close it again when the install ends, also when it fails.
+# state/ holds the passwords. It is kept encrypted (see scripts/state.sh): a real install makes the
+# key the first time. Open it now, and close it again when the install ends, also when it fails.
+if [ "${check[*]}" = "--list --ready" ]; then
+  scripts/state.sh init
+fi
 scripts/state.sh open
 trap 'scripts/state.sh close' EXIT
 
@@ -174,14 +177,14 @@ if [ "${check[*]}" = "--list --ready" ]; then
   chmod 700 state
 fi
 
-# A failed install would leave alerts muted (for up to 1 hour): end the mute, then stop with the error.
+# A failed install would leave alerts muted (for up to 1 hour) and the registry open for pushes: end both, then stop with the error.
 status=0
 ansible-playbook site.yml "$@" || status=$?
 if [ "$status" -ne 0 ]; then
   case " $* " in
     *" --syntax-check "* | *" --check "* | *" --list-"*) ;;  # nothing was installed
     *)
-      echo "The install failed. Ending the alert mute, so alerts are sent again." >&2
+      echo "The install failed. Ending the alert mute (alerts are sent again) and closing the registry for pushes." >&2
       ansible-playbook unmute.yml || true
       ;;
   esac

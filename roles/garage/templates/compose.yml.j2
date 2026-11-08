@@ -1,6 +1,6 @@
 services:
   garage:
-    image: {{ registry_addr }}/garage:{{ images.garage.tag }}
+    image: {{ image_ref.garage }}
     container_name: garage
     restart: always
     # Host network: the firewall decides who can connect.

@@ -256,14 +256,16 @@ def check_k3s():
 
 
 def check_backup():
-    """Every server has a backup in the repository, and the nightly timer is on."""
-    # A folder repository (/mnt/...) is on each server; S3 and rest-server hold all of them.
-    folder = str(CFG["backup"]["repository"]).startswith("/")
-    for node in HOSTS if folder else [LEADER]:
+    """Every server has a backup in its own repository, and the nightly timer is on."""
+    # Each server has its own repository and password: it sees only its own backups.
+    for node in HOSTS:
         code, out = on_node(node, ["sudo", "ansibro-backup", "snapshots", "--json"])
         hosts = {s["hostname"] for s in json.loads(out)} if code == 0 else set()
-        for host in [node] if folder else HOSTS:
-            check(f"backup of {host} in the repository", host in hosts, out[-200:] if code else "no backup")
+        check(f"backup of {node} in its repository", hosts == {node}, out[-200:] if code else f"backups of {hosts}")
+    # config.yml and state/ are in the first manager's backup only encrypted (installer.tar.age).
+    code, out = on_leader(["sudo", "ls", "/opt/ansibro/backup/installer"])
+    check("installer files kept encrypted for the backup", out.split() in (["installer.sha256", "installer.tar.age"], []),
+          out)
     code, out = on_leader(["systemctl", "is-active", "ansibro-backup.timer"])
     check("nightly backup timer is on", out == "active", out)
 
@@ -386,7 +388,10 @@ def check_openbao():
     base = f"http://{ip_of('openbao')}:8200"
     code, body = curl(base + "/v1/sys/seal-status")
     check("openbao is unsealed", code == "200" and '"sealed":false' in body.replace(" ", ""), body[-200:])
-    token = "X-Vault-Token: " + secret("openbao_root_token")
+    check("openbao root token is revoked (no file)", not os.path.exists(os.path.join(HERE, "state", "secrets", "openbao_root_token")))
+    code, body = curl(base + "/v1/auth/userpass/login/admin", data=json.dumps({"password": secret("openbao_admin")}))
+    check("openbao admin login", code == "200", body[-200:])
+    token = "X-Vault-Token: " + (json.loads(body)["auth"]["client_token"] if code == "200" else "none")
     code, _ = curl(base + "/v1/secret/data/ansibro-check", data='{"data": {"hello": "world"}}', headers=[token])
     check("openbao saves a secret", code in ("200", "204"), code)
     code, body = curl(base + "/v1/secret/data/ansibro-check", headers=[token])

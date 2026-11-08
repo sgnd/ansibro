@@ -5,3 +5,10 @@ registry_image: "{{ images.registry.repo }}:{{ images.registry.tag }}"
 # by IP, to copy images into all of them. (regex_replace '$' adds ":<port>" to the end of each IP.)
 registry_manager_addrs: "{{ groups['managers'] | map('extract', hostvars, 'node_ip') | map('regex_replace', '$', ':' ~ registry_port) | list }}"
 registry_names: "{{ [registry_addr] + (registry_manager_addrs if inventory_hostname == swarm_leader else []) }}"
+# ./install.sh -e registry_repush=true pushes every image again from the internet (or the offline
+# bundle), also when the registry has it, and keeps the new digests (see tasks/mirror.yml).
+registry_repush: false
+# The kinds of image the registry may answer with: an image index (a list of builds) or one build.
+registry_manifest_types: >-
+  application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json,
+  application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json

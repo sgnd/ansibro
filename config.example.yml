@@ -47,8 +47,11 @@ wireguard: false
 # Optional: back up every server each night with restic (encrypted). Use storage outside this cluster.
 # repository: s3:https://<s3 server>/<bucket> (AWS S3, Wasabi, another cluster's RustFS or Garage, ...),
 #   rest:https://user:pass@<host>/ (restic rest-server), or a folder that is mounted on every server.
-# The restic password is made for you in state/secrets/restic. Without it the backups cannot be
-# read: keep a copy of state/ outside the cluster. Restore on new servers: ./install.sh -e restore=true
+# Each server gets its own repository, <repository>/servers/<server name>, with its own password, made for
+# you in state/secrets/restic_<server name>: a server cannot read another server's backups. Without those
+# passwords the backups cannot be read: keep a copy of state/ (and its key) outside the cluster.
+# With S3, turn on versioning and Object Lock for the bucket, so a server that was broken into cannot delete
+# the backups (docs/how-to.md, "Back up and restore"). Restore on new servers: ./install.sh -e restore=true
 # backup:
 #   repository: s3:https://s3.example.com/ansibro-backup
 #   s3_access_key: AKIA...

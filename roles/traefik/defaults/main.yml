@@ -13,3 +13,8 @@ traefik_admin_allow_from: >-
 # Generated once and saved in state/secrets/ on the installer machine.
 traefik_password: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/traefik_admin', chars=['ascii_letters', 'digits'], length=24) }}"
 traefik_password_salt: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/traefik_salt', chars=['ascii_letters', 'digits'], length=8) }}"
+
+# Traefik reads the swarm (its apps and their labels) through socket-proxy, never the Docker socket
+# itself: the proxy lets it only read these parts of Docker's API (GET), so a Traefik that was broken
+# into cannot start containers. The proxy answers only Traefik (by its address on the private network).
+traefik_socket_proxy_get: '^/(v[0-9.]+/)?(version|info|services|tasks|networks|nodes)(/[a-zA-Z0-9_.-]+)?$'

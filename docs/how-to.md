@@ -5,7 +5,7 @@ Keep your passwords safe, back up, add monitoring, and change your cluster.
 - [Keep `state/` safe and encrypted](#keep-state-safe-and-encrypted)
 - [Back up and restore](#back-up-and-restore)
 - [Monitoring and alerts](#monitoring-and-alerts)
-- [Add or remove an app or a server](#remove-an-app)
+- [Add or remove an app or a server](#remove-an-app), [your own images](#your-own-images)
 - [Upgrade an app](#upgrade-an-app), [upgrade Ansibro](#upgrade-ansibro) or [start over](#start-over)
 - [Database replicas](#database-replicas) and [Garage on 3 servers](#garage-on-3-servers)
 
@@ -15,43 +15,53 @@ Commands that start with `./install.sh` run on your computer, in the ansibro fol
 
 ## Keep `state/` safe and encrypted
 
-The `state/` folder holds every password the installer made.
-Keep a copy outside the cluster. To keep it encrypted, install [age](https://age-encryption.org)
-(`brew install age` on a Mac, `sudo apt install age` on Ubuntu), then make a key once, on the computer
-that runs the installer. Keep a copy of the key somewhere safe (a password manager):
+The `state/` folder holds every password the installer made. The installer keeps it encrypted with
+[age](https://age-encryption.org), as `state.age`: the first `./install.sh` makes the key
+`~/.config/ansibro/age.key` on the computer that runs the installer (on a Mac it installs age with `brew`
+if needed; on Ubuntu: `sudo apt install age`). **Save a copy of that key in a password manager**:
+without it `state.age` cannot be opened. Keep a copy of `state.age` outside the cluster too.
 
-```bash
-# on your computer
-mkdir -p ~/.config/ansibro && age-keygen -o ~/.config/ansibro/age.key
-```
-
-From then on `state/` is kept as `state.age`, encrypted.
 `./install.sh` opens it while it runs and closes it at the end. To read a password:
 `scripts/state.sh open`, and `scripts/state.sh close` when you are done.
+Another key file: `ANSIBRO_KEY=/path/to/age.key`. To keep `state/` unencrypted (not advised), run the
+first install with `ANSIBRO_PLAIN_STATE=1 ./install.sh`, before the key exists.
+
+`state/summary.md` names the file of each password but does not repeat it.
 
 ## Back up and restore
 
 Add `backup:` to `config.yml` (see [`config.example.yml`](../config.example.yml))
 and run `./install.sh`. Every server then backs up each night with [restic](https://restic.net)
-(encrypted), and the install runs the first backup right away. What is saved:
+(encrypted), and the install runs the first backup right away. Each server has its own repository,
+`<repository>/servers/<server name>`, with its own password (`state/secrets/restic_<server name>`):
+a server cannot read or change another server's backups. What is saved:
 
 - databases (PostgreSQL, MariaDB) as a dump (one file with all the data), while they run. With
   Patroni the primary makes it; with Galera the first server that is in sync. If a dump does not work,
   the folders are still saved, but the backup ends with an error (with victoria the `BackupTooOld` alert follows).
 - every other folder in `/opt/ansibro/`: the app is paused for a moment while its files are copied
 - RustFS and Garage data as it is, while it runs
-- on the first manager: the swarm (your stacks, secrets, configs, networks), `config.yml` and the passwords in `state/secrets/`
+- on the first manager: the swarm (your stacks, secrets, configs, networks), and `config.yml` and the
+  passwords in `state/secrets/`, encrypted for the key of `state/` (`installer.tar.age`: only that key
+  opens it, no server can read it). Without that key, they are not in the backup (the install warns).
 - k3s: the volumes on each server (local-path, in `/var/lib/rancher/k3s/storage`), while they run
 
-Not saved: the image registry (the installer fills it again; push your own images again)
+Not saved: the image registry (the installer fills it again; push your own images again, see [your own images](#your-own-images))
 and Docker volumes. Keep your own stacks' files in `/opt/ansibro/<stack name>/` so they are saved too:
 their containers are paused while copied, like the apps above.
 
 ```bash
 # on a server, after ssh
 sudo ansibro-backup              # back up now
-sudo ansibro-backup snapshots    # list the backups
+sudo ansibro-backup snapshots    # list the backups of this server
 ```
+
+**Keep the backups safe from a server that was broken into.** Every server has the S3 key, so it could
+delete the backups. Turn on versioning and Object Lock for the bucket (AWS S3, Wasabi, Backblaze B2,
+MinIO and others have it), with a retention of at least `keep_daily` days. restic works as before, and a
+deleted file stays in the bucket as an old version for that long. Or use a
+[restic rest-server](https://github.com/restic/rest-server) outside the cluster, started with
+`--append-only --private-repos`, and prune there yourself.
 
 To move the cluster to new servers, or after you lost it: make new servers, keep the same node names
 and `ip` values (with `wireguard: true` only `host` changes), keep `state/`, and run:
@@ -64,20 +74,30 @@ and `ip` values (with `wireguard: true` only `host` changes), keep `state/`, and
 (`-e name=value` gives the installer an extra option.)
 
 Each server gets its newest backup back, the swarm comes back with your stacks, and the databases are
-loaded from their dumps. Old servers are removed from the swarm. A restore only runs on new servers.
+loaded from their dumps. A backup is restored only when it was made by ansibro for that server: only
+its folders are put back (`/opt/ansibro/backup/stage`, the storage data, k3s volumes), and restic
+checks every file it writes. Old servers are removed from the swarm. A restore only runs on new servers.
 With a new `domain`, change Uptime Kuma's monitors to it in its web page: after the first install
 they are yours, and the installer does not change them.
-Lost `state/` too? Then you need the restic password that you saved outside the cluster
-(it was in `state/secrets/restic`). Install [restic](https://restic.net) on your computer, then run this.
-`<repository>` is `backup.repository` from `config.yml`:
+Lost `state/` too? Then you need the key of `state/` (`~/.config/ansibro/age.key`, in your password
+manager) and the restic password of the first manager (`state/secrets/restic_<first manager name>`, in
+the handover file or your password manager). Install [restic](https://restic.net) and age on your
+computer, then run this. `<repository>` is `backup.repository` from `config.yml`:
 
 ```bash
 # on your computer
-restic -r <repository> restore latest \
-  --host <first manager name> \
-  --include /opt/ansibro/backup/stage/installer \
-  --target .
+restic -r <repository>/servers/<first manager name> restore latest \
+  --include /opt/ansibro/backup/stage/installer --target .
+age -d -i ~/.config/ansibro/age.key opt/ansibro/backup/stage/installer/installer.tar.age | tar -xf -
+# installer/config.yml and installer/state/secrets/ are here now
 ```
+
+**Backups from before ansibro 1.4.** They are in one repository for all servers (`<repository>` itself,
+password `state/secrets/restic`). Since 1.4 nothing writes to it or deletes from it. To restore from it,
+add `-e restore_legacy=true` to `-e restore=true` (with the same checks; every server of the old cluster
+could write to that repository, so restore from it only if you trust them all). It holds `config.yml`
+and `state/secrets/` unencrypted, and every server of the old cluster had its password: when you no
+longer need it (after `keep_monthly` months), delete it: everything in the bucket (or folder) except `servers/`.
 
 ## Monitoring and alerts
 
@@ -140,6 +160,22 @@ demoted first) and the other servers' firewalls forget it. Without `-e remove_no
 installer stops and lists the servers it would remove, so a typo cannot remove one.
 Then turn the server off. Never remove the first manager.
 
+## Your own images
+
+The cluster's registry is read-only: the servers pull from it, and only the installer pushes (it opens
+the registry for that, and closes it again at the end). To push your own images, open it first:
+
+```bash
+# on a manager, after ssh
+sudo ansibro-registry open          # takes pushes for 1 hour (or: open 20min), then closes by itself
+sudo docker push registry.ansibro:5000/<image>:<tag>
+sudo ansibro-registry close         # read-only again now
+```
+
+On the other servers `registry.ansibro` is the first manager's registry, so push there. Deploy your own
+images by digest, like ansibro does: `registry.ansibro:5000/<image>:<tag>@sha256:...` (the digest is in
+the output of `docker push`). Then an image pushed later under the same tag is never run.
+
 ## Add a server
 
 Add it to `config.yml`, after the first manager, and run `./install.sh`.
@@ -157,7 +193,7 @@ remove its members by itself, so the installer stops when the managers change. T
 1. On every manager that runs etcd now, stop it and delete its data (it holds only Patroni's state):
    `cd /opt/ansibro/etcd && sudo docker compose down && sudo rm -rf data managers`
 2. Run `./install.sh`. etcd starts again, empty, on the new list of managers, and Patroni writes its
-   state into it again. PostgreSQL takes no writes for about a minute while etcd is down, and the
+   state into it again. Then etcd asks for its login again (the installer turns it on once Patroni runs). PostgreSQL takes no writes for about a minute while etcd is down, and the
    primary may move to another database server (apps that use database-proxy follow it).
 
 ## Upgrade an app
@@ -181,6 +217,11 @@ Use a released version (a tag like `v1.2.0`), not the newest `main`, on a cluste
 
 A second `./install.sh` right after should show `changed=0`. Offline: build or download the bundle
 of the new version (see [offline.md](offline.md)) and put it in place of the old `bundle/` folder.
+
+**To 1.4 (from 1.3 or older).** The first run is a short maintenance window: every app restarts once,
+PostgreSQL with Patroni switches its primary once (writes stop for a few seconds), and Traefik restarts.
+It also pushes every image again and starts a full backup to new repositories. Read the upgrade notes in
+[CHANGELOG.md](../CHANGELOG.md) (also how to go back), and try it on a lab copy first.
 
 ## Start over
 

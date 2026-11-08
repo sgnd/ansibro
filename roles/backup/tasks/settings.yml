@@ -1,4 +1,5 @@
 # Where the backups go, and the password. Used by backup (main.yml) and restore (restore.yml).
+# A restore with -e restore_legacy=true reads the shared repository of ansibro 1.3 and older.
 
 - name: Create backup folder
   ansible.builtin.file:
@@ -6,10 +7,28 @@
     state: directory
     mode: "0700"
 
+- name: Check the password of the old shared backups is here
+  ansible.builtin.stat:
+    path: "{{ secrets_dir }}/restic"
+  delegate_to: localhost
+  become: false
+  register: backup_legacy_password
+  run_once: true
+  when: restore | bool and restore_legacy | bool
+
+- name: Stop if the password of the old shared backups is missing
+  ansible.builtin.assert:
+    that: backup_legacy_password.stat.exists
+    fail_msg: "restore_legacy=true needs the password of the old shared backups, state/secrets/restic."
+  run_once: true
+  when: restore | bool and restore_legacy | bool
+
 - name: Write restic password
   ansible.builtin.copy:
     dest: "{{ backup_dir }}/password"
-    content: "{{ backup_password }}"
+    content: >-
+      {{ lookup('ansible.builtin.file', secrets_dir ~ '/restic') if restore | bool and restore_legacy | bool
+      else backup_password }}
     mode: "0600"
   no_log: true
 
@@ -17,9 +36,10 @@
   ansible.builtin.copy:
     dest: "{{ backup_dir }}/restic.env"
     content: |
-      RESTIC_REPOSITORY='{{ backup.repository }}'
+      RESTIC_REPOSITORY='{{ backup_repository_base if restore | bool and restore_legacy | bool else backup_repository }}'
       RESTIC_PASSWORD_FILE='{{ backup_dir }}/password'
       AWS_ACCESS_KEY_ID='{{ backup.s3_access_key | default('') }}'
       AWS_SECRET_ACCESS_KEY='{{ backup.s3_secret_key | default('') }}'
     mode: "0600"
+  register: backup_settings
   no_log: true

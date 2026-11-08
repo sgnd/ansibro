@@ -16,6 +16,9 @@
     state: directory
     mode: "0700"
 
+# The database password is a file (secrets/db_password), not in the settings: Kong reads it from
+# KONG_PG_PASSWORD_FILE. On Swarm it reaches Kong as a swarm secret, so whoever may read the swarm's
+# services (Traefik, through socket-proxy, for one) does not see it. (k3s: a Kubernetes secret.)
 - name: Write Kong settings
   ansible.builtin.copy:
     dest: "{{ kong_dir }}/kong.env"
@@ -24,9 +27,23 @@
       KONG_PG_HOST={{ database_host }}
       KONG_PG_DATABASE=kong
       KONG_PG_USER=kong
-      KONG_PG_PASSWORD={{ kong_db_password }}
+      KONG_PG_PASSWORD_FILE=/run/secrets/db_password
     mode: "0600"
   register: kong_env
+
+- name: Create the folder for Kong's secrets
+  ansible.builtin.file:
+    path: "{{ kong_dir }}/secrets"
+    state: directory
+    mode: "0700"
+
+# Readable for Kong's own user in its container (the folder above is for root only).
+- name: Write Kong's database password
+  ansible.builtin.copy:
+    dest: "{{ kong_dir }}/secrets/db_password"
+    content: "{{ kong_db_password }}"
+    mode: "0644"
+  register: kong_db_secret
   no_log: true
 
 - name: Mirror Kong image
@@ -43,7 +60,8 @@
     cmd: |
       set -e
       run="docker run --rm --env-file {{ kong_dir }}/kong.env -e KONG_PG_HOST={{ kong_pg_primary }}"
-      run="$run {{ registry_addr }}/kong:{{ images.kong.tag }} kong migrations"
+      run="$run -v {{ kong_dir }}/secrets/db_password:/run/secrets/db_password:ro"
+      run="$run {{ image_ref.kong }} kong migrations"
       $run bootstrap
       $run up
     executable: /bin/bash
@@ -80,7 +98,7 @@
     tasks_from: deploy
   vars:
     swarm_stack: kong
-    swarm_stack_changed: "{{ kong_stack.changed or kong_env.changed or kong_admin_conf.changed }}"
+    swarm_stack_changed: "{{ kong_stack.changed or kong_env.changed or kong_admin_conf.changed or kong_db_secret.changed }}"
 
 # k3s: a manifest in k3s's folder; k3s applies it by itself.
 - name: Write Kong for k3s
@@ -94,6 +112,7 @@
 - name: Finish Kong database changes
   ansible.builtin.command: >-
     docker run --rm --env-file {{ kong_dir }}/kong.env -e KONG_PG_HOST={{ kong_pg_primary }}
-    {{ registry_addr }}/kong:{{ images.kong.tag }} kong migrations finish
+    -v {{ kong_dir }}/secrets/db_password:/run/secrets/db_password:ro
+    {{ image_ref.kong }} kong migrations finish
   register: kong_finish
   changed_when: "'executed' in kong_finish.stdout"

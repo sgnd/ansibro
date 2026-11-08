@@ -1,6 +1,6 @@
 services:
   beszel:
-    image: {{ registry_addr }}/beszel:{{ images.beszel.tag }}
+    image: {{ image_ref.beszel }}
     container_name: beszel
     restart: always
     # Host network: the firewall decides who can connect.
