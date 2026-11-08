@@ -34,6 +34,10 @@ Even between your servers only those ports are open (the list is `common_app_por
 Admin web pages can be limited to some IPs with `admin_allow_from` (the servers themselves are always
 let in too: Uptime Kuma checks the pages from there; on k3s also the pod range `10.42.0.0/16`, for the
 pods). Traefik sees each visitor's real IP: on k3s it takes ports 80 and 443 of its server itself. k3s NodePorts answer only on a server's `ip`.
+When `admin_allow_from` is empty, `./install.sh` warns at the start and at the end (and in `state/summary.md`):
+the admin pages are then open to the whole internet. With Authelia or Keycloak installed, every admin
+page asks for that login too, also the ones with their own login (Portainer, Grafana, ...); requests from
+the servers, and a few paths that programs call, skip it (see [Apps](apps.md#with-authelia-or-keycloak-every-admin-page-asks-for-that-login)).
 
 The installer owns the firewall. The first run, and every run where the rules change, resets it:
 rules you added by hand are removed (put them in `firewall_allow`). During that reset the firewall
@@ -58,9 +62,10 @@ is open to everyone: the firewall cannot block it (that is how Docker works). Us
 
 **Between your servers.** A container on one server reaches another server with its server's IP,
 so it can use the same ports as that server. Most of them need a password. These do not, so they
-show their data to every container in the cluster: the monitoring agents and the monitoring
-server's pages (metrics, logs, Alertmanager), etcd for Patroni, and Patroni's API for reading
-(changes on it need a login). Run only containers you trust.
+show their data to every container in the cluster: the monitoring agents, the metrics and logs
+(VictoriaMetrics and VictoriaLogs: reading and adding; deleting needs a key), etcd for Patroni, and
+Patroni's API for reading (changes on it need a login). Alertmanager needs a login, so a container
+cannot mute the alerts. Run only containers you trust.
 
 ## Good to know
 
@@ -84,6 +89,9 @@ server's pages (metrics, logs, Alertmanager), etcd for Patroni, and Patroni's AP
   their data on the first manager, so they run there.
 - **The registry needs a login.** Every server logs in (password in `state/secrets/registry`),
   so a container cannot push a fake image into it.
+- **k3s workers join with the agent token** (`state/secrets/k3s_agent_token`), the managers with the
+  server token (`state/secrets/k3s_token`). The server token also gives the cluster's keys, so it stays
+  on the managers.
 - **Swarm networks use `10.200.0.0/16`, k3s uses `10.42.0.0/16` and `10.43.0.0/16`.** Your servers' IPs must be outside them.
 - **Use a private network between servers, or `wireguard: true`.** Without WireGuard, traffic between servers is not encrypted.
 - **The `ip` of a node is its private IP** (or its WireGuard address). DNS must point to the public IP of the servers Traefik runs on.
@@ -108,8 +116,8 @@ server's pages (metrics, logs, Alertmanager), etcd for Patroni, and Patroni's AP
 | `catalog.yml` | All apps: category, where they run, license, how to reach them. |
 | `versions.yml` | Every pinned version: images, packages, k3s. |
 | `group_vars/`, `templates/`, `ansible.cfg` | Settings shared by all steps, the summary and `state/handover.json` templates, Ansible's settings. |
-| `requirements.txt`, `requirements.yml` | The Python packages (Ansible) and Ansible add-ons the installer downloads. |
+| `requirements.txt`, `requirements.yml` | The Python packages (Ansible, each with the sha256 of its files: pip refuses others) and Ansible add-ons the installer downloads. |
 | `build-bundle.sh` | Builds an offline bundle. |
-| `scripts/` | Small helpers: open and close `state/`, check versions, scan images. |
+| `scripts/` | Small helpers: open and close `state/`, check versions, scan images, write the hashes in `requirements.txt`. |
 | `tests/` | `check.py` checks a real install; `test_config.py` checks `config.yml` mistakes; `test_handover.py` checks `state/handover.json` has the facts and no password. |
 | `.claude/skills/` | Help for AI agents (set up, install, add an app, update versions). |

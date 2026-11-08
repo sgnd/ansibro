@@ -5,6 +5,9 @@
 // First run: it makes the admin user and the monitors. A run that stopped half way is finished by
 // the next one (it adds only the monitors that are missing, by name). When all are added, it writes
 // ansibro-monitors-done: from then on you own the monitors, and it never adds, changes or removes one.
+// One exception: a monitor that logs in (the monitoring server's Watchdog check, Alertmanager asks for
+// a login) gets its password from stdin too, and every run sets that login again on the monitor the
+// installer made (same name and address), so it keeps working when the password changes.
 // Every run checks the saved password works, else it stops with an error.
 const { io } = require("/app/node_modules/socket.io-client");
 const fs = require("fs");
@@ -62,20 +65,39 @@ async function run(settings) {
       + "Someone else may have set it up first: check it. If you changed the password, put the new one in that file.");
   }
 
-  if (fs.existsSync(doneFile)) {
-    console.log("nothing to do");
-    process.exit(0);
-  }
   const timer = setTimeout(() => fail("no list of monitors"), 20000);
-  const existing = Object.values(await monitorList).map((monitor) => monitor.name);
+  const list = Object.values(await monitorList);
   clearTimeout(timer);
   const monitors = JSON.parse(fs.readFileSync("/app/data/ansibro-monitors.json", "utf8"));
+  for (const monitor of monitors.filter((m) => m.authMethod === "basic")) {
+    monitor.basic_auth_pass = settings.alertmanagerPassword;
+  }
+
+  // The login of the monitors that log in, on the ones the installer made. Like the web page does it:
+  // the monitor as Uptime Kuma sent it, with the new login.
+  let updated = "";
+  for (const monitor of monitors.filter((m) => m.authMethod === "basic")) {
+    const old = list.find((m) => m.name === monitor.name && m.url === monitor.url);
+    if (old && (old.authMethod !== "basic" || old.basic_auth_user !== monitor.basic_auth_user
+        || old.basic_auth_pass !== monitor.basic_auth_pass)) {
+      answer = await call(socket, "editMonitor", { ...old, authMethod: "basic",
+        basic_auth_user: monitor.basic_auth_user, basic_auth_pass: monitor.basic_auth_pass });
+      if (!answer.ok) fail("monitor " + monitor.name + ": " + answer.msg);
+      updated += "updated the login of " + monitor.name + ", ";
+    }
+  }
+
+  if (fs.existsSync(doneFile)) {
+    console.log(updated || "nothing to do");
+    process.exit(0);
+  }
+  const existing = list.map((monitor) => monitor.name);
   const missing = monitors.filter((monitor) => !existing.includes(monitor.name));
   for (const monitor of missing) {
     answer = await call(socket, "add", { ...defaults, ...monitor });
     if (!answer.ok) fail("monitor " + monitor.name + ": " + answer.msg);
   }
   fs.writeFileSync(doneFile, "All monitors were added. Made by ansibro: from now on you own the monitors.\n");
-  console.log(missing.length || created ? created + "created " + missing.length + " monitors" : "nothing to do");
+  console.log(missing.length || created || updated ? created + updated + "created " + missing.length + " monitors" : "nothing to do");
   process.exit(0);
 }

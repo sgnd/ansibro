@@ -19,6 +19,15 @@
   register: wireguard_public_key
   changed_when: false
 
+# Each server's public key goes into the config of every other server. Check them all first: a value
+# with more lines could add a line like PostUp, which wg-quick runs as root on those servers.
+- name: Check the WireGuard public keys
+  ansible.builtin.assert:
+    that: hostvars[item].wireguard_public_key.stdout is regex('[A-Za-z0-9+/]{43}=', match_type='fullmatch')
+    fail_msg: "{{ item }} sent a WireGuard public key that is not 44 characters of base64. Check /etc/wireguard on {{ item }}."
+    quiet: true
+  loop: "{{ groups['all'] }}"
+
 - name: Write WireGuard config
   ansible.builtin.template:
     src: wg0.conf.j2

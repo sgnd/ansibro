@@ -3,8 +3,11 @@ k3s_server: "{{ inventory_hostname in groups['managers'] }}"
 k3s_service: "{{ 'k3s' if k3s_server else 'k3s-agent' }}"
 k3s_url: "https://{{ hostvars[swarm_leader].node_ip }}:6443"
 k3s_binary_url: "https://github.com/k3s-io/k3s/releases/download/{{ k3s.version }}/k3s"
-# Servers and agents join with this token. Generated once, kept in state/secrets/.
+# Servers join with the server token, workers with the agent token. Made once, kept in state/secrets/.
+# Workers get only the agent token: with the server token, a worker could read the cluster's CA keys
+# and so take over the whole cluster. The agent token can only add a worker.
 k3s_token: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/k3s_token', chars=['ascii_letters', 'digits'], length=48) }}"
+k3s_agent_token: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/k3s_agent_token', chars=['ascii_letters', 'digits'], length=48) }}"
 # The pod network (flannel) must use the network of node_ip; else it takes the interface of the
 # default route (often the public one), which the firewall closes. Found from the server's facts.
 k3s_flannel_iface: >-

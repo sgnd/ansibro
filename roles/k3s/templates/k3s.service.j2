@@ -14,6 +14,14 @@ After=wg-quick@wg0.service
 Type={{ 'notify' if k3s_server else 'exec' }}
 ExecStartPre=-/sbin/modprobe br_netfilter
 ExecStartPre=-/sbin/modprobe overlay
+{% if k3s_server %}
+# k3s keeps a copy of its token file (cred/passwd) in its database, and refuses to start when the
+# file on disk is newer and different. A cluster that gets agent-token later (ansibro 1.3.0 and older
+# had none) has a new file but the old copy: k3s changes only the file (k3s discussion 14839). So mark
+# the file as old: k3s then takes the copy, and sets the tokens from config.yaml again. This changes
+# nothing when the two are the same. (-c: do not make the file when it is not there.)
+ExecStartPre=-/usr/bin/touch -c -d @0 /var/lib/rancher/k3s/server/cred/passwd
+{% endif %}
 ExecStart=/usr/local/bin/k3s {{ 'server' if k3s_server else 'agent' }}
 KillMode=process
 Delegate=yes

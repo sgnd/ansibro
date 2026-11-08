@@ -38,6 +38,8 @@ services:
         traefik.http.routers.keycloak.service: keycloak
         # The admin console and admin API only from admin_allow_from (the longer rule wins).
         # The rest (/realms: the logins) stays open, because apps and users log in there.
+        # Not behind the admin login: Keycloak is that login (admin_sso), and if its realm broke you could
+        # not get in to fix it. The master admin password (state/secrets/keycloak_admin) guards it.
         traefik.http.routers.keycloak-admin.rule: Host(`{{ keycloak_host }}`) && PathPrefix(`/admin`)
         traefik.http.routers.keycloak-admin.service: keycloak
         traefik.http.routers.keycloak-admin.middlewares: admin-ip@file

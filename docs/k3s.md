@@ -9,6 +9,10 @@ backup, monitoring and alerts, offline bundle.
 With k3s:
 - Managers are k3s servers (3 managers = the cluster survives one down), workers are k3s agents.
   Standalone servers run server apps and are not in the cluster. The pinned k3s version is in `versions.yml`.
+- Workers join with the agent token (`state/secrets/k3s_agent_token`), managers with the server token
+  (`state/secrets/k3s_token`). A worker never gets the server token: with it, it could read the cluster's
+  keys. A cluster made by Ansibro 1.3.0 or older gets the agent token at the next `./install.sh`: the
+  managers restart one by one, then the workers (running pods keep running).
 - Use `kubectl` on a manager: `sudo k3s kubectl get nodes`. To use it from your laptop, copy
   `/etc/rancher/k3s/k3s.yaml` from a manager and change `127.0.0.1` in it to the manager's address.
   The firewall opens port 6443 only to the other servers, so also do one of these: keep `127.0.0.1` and

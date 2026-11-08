@@ -31,5 +31,8 @@ Commands that start with `sudo` run on a server: log in first with `ssh <user>@<
 | `no such host` or a timeout while downloading | A network problem on the server. Check its internet, then run `./install.sh` again. It is safe to run again: it continues where it stopped. |
 | No alerts arrive | Look at `https://alertmanager.<domain>`: if alerts are there, check `monitoring:` in `config.yml` and the `AlertsNotSent` alert. Logs: `sudo docker logs alertmanager` on the monitoring server. |
 | An alert you do not want | Silence it in `https://alertmanager.<domain>` (for a time), or change the rule in `roles/observability/files/alerts.yml`. |
+| `401 Unauthorized` from Alertmanager (port 9093) | It needs its login: user `ansibro`, password in `state/secrets/alertmanager` (`curl -u ansibro:<password> ...`). |
+| A script or CLI that calls Portainer, Grafana, OpenBao, ... by its web address stopped working | With Authelia or Keycloak installed, these pages ask for that login first. Use the app's port on its server's `ip` (OpenBao: `http://<ip>:8200`) from a server, or an SSH tunnel from your laptop. See [Apps](apps.md#with-authelia-or-keycloak-every-admin-page-asks-for-that-login). |
+| `warning: admin_allow_from is empty` | The admin pages are open to the whole internet. Set `admin_allow_from` in `config.yml` to the IPs you work from, then run `./install.sh` again. |
 | `toomanyrequests` from Docker Hub | Docker Hub limits pulls. Wait, or run `sudo docker login` on the first manager. |
 | Another error, in red, with `FAILED` | Run `./install.sh` again: it is safe, and some errors go away (a slow download, for example). Still failing? Open a [bug report](https://github.com/sgnd/ansibro/issues/new?template=bug-report.yml) with the red lines. |

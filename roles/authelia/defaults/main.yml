@@ -7,5 +7,7 @@ authelia_jwt_secret: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/auth
 authelia_session_secret: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/authelia_session_secret', chars=['ascii_letters', 'digits'], length=64) }}"
 authelia_storage_key: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/authelia_storage_key', chars=['ascii_letters', 'digits'], length=64) }}"
 
-# Admin pages (the subdomains that use the admin@file middleware). They need two factors.
-authelia_admin_hosts: [traefik, swarmpit, kong-manager, uptimekuma, alertmanager, metrics, logs, nats, beszel, rabbitmq, rustfs]
+# Admin pages (the subdomains that use the admin@file middleware, also through the sso route in
+# roles/traefik/tasks/route.yml). They need two factors.
+authelia_admin_hosts: [traefik, portainer, swarmpit, kong-manager, uptimekuma, alertmanager, metrics, logs, nats, beszel,
+                       rabbitmq, rustfs, openbao, grafana]

@@ -49,3 +49,4 @@
   vars:
     traefik_route_name: rabbitmq
     traefik_route_port: 15672
+    traefik_route_middleware: sso  # its own login, and the admin login when Authelia or Keycloak is installed

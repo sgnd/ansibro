@@ -8,6 +8,15 @@
   run_once: true
   register: beszel_hub_key
 
+# The key goes into the agent settings of every server: check it is one line with an SSH key
+# (the hub's key is made by ssh-keygen -t ed25519, in tasks/main.yml).
+- name: Check the hub's public key
+  ansible.builtin.assert:
+    that: (beszel_hub_key.content | b64decode | trim) is regex('ssh-ed25519 [A-Za-z0-9+/=]+( [A-Za-z0-9@._-]+)?', match_type='fullmatch')
+    fail_msg: "{{ beszel_dir }}/data/id_ed25519.pub on {{ apps.beszel }} is not one line with an ed25519 SSH key."
+    quiet: true
+  run_once: true
+
 - name: Mirror Beszel agent image
   ansible.builtin.include_role:
     name: registry

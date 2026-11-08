@@ -29,7 +29,8 @@ jobs:
       - name: Install Ansible
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install -r requirements.txt ansible-lint==26.10.1
+          .venv/bin/pip install --require-hashes -r requirements.txt
+          .venv/bin/pip install ansible-lint==26.10.1  # a check tool, not part of the installer
           .venv/bin/ansible-galaxy collection install -r requirements.yml
       - name: Check config.example.yml and common config mistakes
         run: .venv/bin/python tests/test_config.py

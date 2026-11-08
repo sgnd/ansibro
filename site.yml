@@ -322,6 +322,16 @@
       loop_control:
         label: "{{ item.key }}"
 
+    # Also in state/summary.md, and inventory.py --ready says it before the install starts.
+    - name: Warn that the admin pages are open to everyone
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: admin_allow_from in config.yml is empty, so the admin web pages (Traefik, Portainer,
+          Grafana, ...) are open to the whole internet, protected only by
+          {{ 'the ' ~ admin_sso | capitalize ~ ' login (with a second factor) and ' if admin_sso else '' }}each
+          page's own login. Set admin_allow_from to the IPs you work from (office, VPN), then run ./install.sh again.
+      when: "'traefik' in apps and not admin_allow_from | default([])"
+
     - name: Show where the summary is
       ansible.builtin.debug:
         msg: >-

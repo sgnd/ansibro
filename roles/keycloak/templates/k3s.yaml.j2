@@ -61,6 +61,7 @@ spec:
       kind: Rule
       services: [{ name: keycloak, port: 8080 }]
     # The admin console and admin API only from admin_allow_from. The rest (/realms: the logins) stays open.
+    # Not behind the admin login: Keycloak is that login, and if its realm broke you could not get in to fix it.
     - match: Host(`{{ keycloak_host }}`) && PathPrefix(`/admin`)
       kind: Rule
       middlewares: [{ name: admin-ip }]

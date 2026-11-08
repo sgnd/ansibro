@@ -27,11 +27,14 @@
 {% endfor %}
 {% endif %}
 {% if monitoring_app %}
+{#   Alertmanager asks for a login. setup.js adds the password (from stdin, it is not in this file). #}
 {%   set _ = monitors.append({
        'type': 'keyword',
        'name': 'Monitoring server (its Watchdog alert)',
        'url': 'http://' ~ monitoring_ip ~ ':9093/api/v2/alerts?filter=alertname=Watchdog',
        'keyword': 'Watchdog',
+       'authMethod': 'basic',
+       'basic_auth_user': alertmanager_user,
      }) %}
 {% endif %}
 {{ monitors | to_nice_json }}

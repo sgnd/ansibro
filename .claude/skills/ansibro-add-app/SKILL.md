@@ -61,7 +61,9 @@ description: Add a new app to the Ansibro catalog (a new role, catalog entry and
      so Uptime Kuma gets a monitor for it.
    - Admin page: add it to `authelia_admin_hosts` (`roles/authelia/defaults/main.yml`, they need two
      factors) if it uses the `admin` login, and to the page list in the `admin_allow_from` comment in
-     `config.example.yml`.
+     `config.example.yml`. An admin page with its own login: `traefik_route_middleware: sso` (server app;
+     paths that programs call go in `traefik_route_open_paths`), or `admin@file` when `admin_sso` is set
+     (swarm app, like `roles/portainer/`).
 
 6. **Docs and tests**:
    - `README.md`: add a row to the Apps table.

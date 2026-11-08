@@ -205,7 +205,8 @@ READY = [
     ("sub.example.com email", {"acme_email": "me@mail.example.com"}, "acme_email is still"),
     ("myexample.com domain and email", {"acme_email": "me@myexample.com"}, None),
 ]
-for name, change, expected in READY:
+def run_ready(change):
+    """inventory.py --list --ready on config.example.yml with own values, plus change. Returns the process."""
     cfg = copy.deepcopy(BASE)
     cfg.update(domain="myexample.com", acme_email="ops@myexample.com", ssh={**cfg.get("ssh", {}), "key": KEY})
     cfg.update(change)
@@ -213,12 +214,28 @@ for name, change, expected in READY:
         path = os.path.join(tmp, "config.yml")
         with open(path, "w") as f:
             yaml.safe_dump(cfg, f)
-        p = subprocess.run([sys.executable, os.path.join(HERE, "inventory.py"), "--list", "--ready"],
-                           capture_output=True, text=True, cwd=HERE, env={**os.environ, "ANSIBRO_CONFIG": path})
+        return subprocess.run([sys.executable, os.path.join(HERE, "inventory.py"), "--list", "--ready"],
+                              capture_output=True, text=True, cwd=HERE, env={**os.environ, "ANSIBRO_CONFIG": path})
+
+
+for name, change, expected in READY:
+    p = run_ready(change)
     ok = p.returncode == 0 if expected is None else p.returncode != 0 and expected in p.stderr
     failed += not ok
     print(f"{'PASS' if ok else 'FAIL'}  --ready: {name} is {'accepted' if expected is None else 'refused'}"
           + ("" if ok else f"  (got: {p.stderr.strip() or 'accepted'})"))
+
+# --ready warns about admin pages open to everyone, but does not stop: running clusters must still upgrade.
+WARN = [
+    ("empty admin_allow_from", {"admin_allow_from": []}, True),
+    ("admin_allow_from set", {"admin_allow_from": ["203.0.113.0/24"]}, False),
+]
+for name, change, warned in WARN:
+    p = run_ready(change)
+    ok = p.returncode == 0 and ("warning: admin_allow_from is empty" in p.stderr) == warned
+    failed += not ok
+    print(f"{'PASS' if ok else 'FAIL'}  --ready: {name} is accepted {'with' if warned else 'without'} a warning"
+          + ("" if ok else f"  (got: exit {p.returncode}, {p.stderr.strip() or 'no warning'})"))
 
 # The ready-to-use configs in examples/: accepted online and offline (tls: selfsigned),
 # and every server gets the tier its comment promises.
@@ -247,6 +264,6 @@ for path in examples:
         print(f"{'PASS' if ok else 'FAIL'}  examples/{name} ({mode}) is accepted, tiers as described"
               + ("" if ok else f"  ({err or wrong or 'no tiers listed in TIERS'})"))
 
-total = len(CASES) + len(GOOD) + len(READY) + 1 + 2 * len(examples)
+total = len(CASES) + len(GOOD) + len(READY) + len(WARN) + 1 + 2 * len(examples)
 print(f"\n{total - failed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

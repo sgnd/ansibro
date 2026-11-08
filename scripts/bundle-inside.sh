@@ -26,8 +26,9 @@ apt-get update -qq
 
 echo "- Python packages and Ansible collections"
 python3 -m venv /tmp/venv
-/tmp/venv/bin/pip download -q -r /src/requirements.txt -d /out/python
-/tmp/venv/bin/pip install -q --no-index --find-links /out/python -r /src/requirements.txt
+# --require-hashes: only files whose sha256 is in requirements.txt.
+/tmp/venv/bin/pip download -q --require-hashes -r /src/requirements.txt -d /out/python
+/tmp/venv/bin/pip install -q --require-hashes --no-index --find-links /out/python -r /src/requirements.txt
 # Galaxy sometimes drops the connection, so try 3 times.
 for try in 1 2 3; do
   /tmp/venv/bin/ansible-galaxy collection download -r /src/requirements.yml -p /out/collections >/dev/null && break

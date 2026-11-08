@@ -53,12 +53,75 @@
   register: observability_alertmanager
   diff: false
 
+# Has the Alertmanager password: only Grafana (user 472) may read it.
 - name: Write Grafana data sources
   ansible.builtin.template:
     src: grafana-datasources.yml.j2
     dest: "{{ observability_dir }}/config/grafana/datasources/ansibro.yml"
-    mode: "0644"
+    owner: "472"
+    mode: "0600"
   register: observability_datasources
+  diff: false
+
+# Alertmanager asks for a login (user alertmanager_user). It keeps a bcrypt hash of the password.
+# A new hash differs every time, so the one on the server stays while it still fits the password:
+# then the file changes only when the password in state/secrets/alertmanager changes.
+- name: Read Alertmanager's login file
+  ansible.builtin.slurp:
+    src: "{{ observability_dir }}/config/alertmanager-web.yml"
+  register: observability_web_file
+  failed_when: false  # not there yet: a new hash is made
+
+- name: Hash Alertmanager's password
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - -c
+      - |
+        import bcrypt, json, re, sys
+        d = json.load(sys.stdin)
+        password = d["password"].encode()
+        old = re.search(r"[$]2[aby][$][./A-Za-z0-9$]+", d["old"])
+        old = old.group().encode() if old else b""
+        try:
+            keep = bool(old) and bcrypt.checkpw(password, old)
+        except ValueError:  # not a bcrypt hash
+            keep = False
+        print(old.decode() if keep else bcrypt.hashpw(password, bcrypt.gensalt()).decode())
+    stdin: "{{ {'password': alertmanager_password, 'old': observability_web_file.content | default('') | b64decode} | to_json }}"
+  delegate_to: localhost
+  become: false
+  register: observability_web_hash
+  changed_when: false
+  no_log: true
+
+# Alertmanager reads this file on every request: a new password works without a restart.
+- name: Write Alertmanager's login file
+  ansible.builtin.copy:
+    dest: "{{ observability_dir }}/config/alertmanager-web.yml"
+    content: |
+      # Who may use Alertmanager (web page and API). Made by ansibro, do not change it here:
+      # the password is in state/secrets/alertmanager on the machine that runs the installer.
+      basic_auth_users:
+        {{ alertmanager_user }}: "{{ observability_web_hash.stdout }}"
+    owner: "65534"
+    mode: "0600"
+  diff: false
+
+# For vmalert and VictoriaMetrics (they run as root): the Alertmanager password, and the key for
+# the admin pages of VictoriaMetrics and VictoriaLogs (observability_admin_key).
+- name: Write the Alertmanager password and the admin key for the monitoring apps
+  ansible.builtin.copy:
+    dest: "{{ observability_dir }}/config/{{ item.file }}"
+    content: "{{ item.value }}"
+    mode: "0600"
+  loop:
+    - { file: alertmanager-password, value: "{{ alertmanager_password }}" }
+    - { file: admin-key, value: "{{ observability_admin_key }}" }
+  loop_control:
+    label: "{{ item.file }}"
+  register: observability_secrets
+  no_log: true
 
 - name: Write Grafana dashboards
   ansible.builtin.copy:
@@ -99,7 +162,8 @@
     docker_compose_app: "{{ monitoring_app }}"
     docker_compose_restart: >-
       {{ observability_scrape.changed or observability_alerts.changed
-         or observability_alertmanager.changed or observability_datasources.changed }}
+         or observability_alertmanager.changed or observability_datasources.changed
+         or observability_secrets.changed }}
 
 # While the installer runs, not every server and app is up yet (the agents and swarm apps come
 # later), so alerts like NodeDown would fire for nothing. Mute every alert except Watchdog
@@ -116,8 +180,11 @@
   vars:
     traefik_route_name: grafana
     traefik_route_port: "{{ observability_grafana_port }}"
+    traefik_route_middleware: sso  # its own login, and the admin login when Authelia or Keycloak is installed
+    traefik_route_open_paths: [/api/health]  # for Uptime Kuma
 
-# Alertmanager and the metrics and logs pages have no login of their own: the Traefik password first.
+# The metrics and logs pages have no login of their own: the admin login first. Alertmanager has its
+# own login (for the apps that use it); Traefik adds it after the admin login, so you log in once.
 - name: Add Alertmanager to Traefik
   ansible.builtin.include_role:
     name: traefik
@@ -126,6 +193,7 @@
     traefik_route_name: alertmanager
     traefik_route_port: "{{ observability_alertmanager_port }}"
     traefik_route_middleware: admin
+    traefik_route_app_login: "{{ alertmanager_user }}:{{ alertmanager_password }}"
 
 - name: Add the metrics page to Traefik
   ansible.builtin.include_role:

@@ -10,6 +10,17 @@ cat ansibro-24.04.tar.gz.part* > ansibro-24.04.tar.gz
 sha256sum -c ansibro-24.04.tar.gz.sha256   # on a Mac: shasum -a 256 -c ...
 ```
 
+The `.sha256` file only shows the parts came through whole: it sits next to them, so whoever could
+change the bundle could change it too. To check that GitHub built the bundle from this project's
+release workflow, use the [GitHub CLI](https://cli.github.com) (logged in with `gh auth login`), on a
+machine with internet. Releases after 1.3.0 have this:
+
+```bash
+gh attestation verify ansibro-24.04.tar.gz --repo sgnd/ansibro
+```
+
+It must end with `Verification succeeded!`. Then copy the bundle to the servers' network.
+
 Or build one yourself: **on a machine with internet and Docker**, build a bundle for the Ubuntu version
 of your servers. A Mac (Docker Desktop or OrbStack) works too. On a Mac or Linux machine with an ARM CPU,
 building needs QEMU, which lets it run Intel/AMD programs.

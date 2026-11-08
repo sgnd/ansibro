@@ -2,8 +2,15 @@
 # Used by app roles. Does nothing if traefik is not installed. Input:
 #   traefik_route_name:       app name, also the subdomain
 #   traefik_route_port:       port of the app on this server
-#   traefik_route_middleware: admin-ip (default), admin (adds the dashboard password),
+#   traefik_route_middleware: admin-ip (default), admin (adds the admin login: Authelia, Keycloak or
+#                             the dashboard password), sso (for apps with their own login: admin-ip,
+#                             plus the Authelia or Keycloak login when one is installed),
 #                             or authelia@file (Authelia login; this replaces the admin-ip limit)
+#   traefik_route_open_paths: optional, with sso: paths that programs call (health checks, webhooks,
+#                             status pages). They skip the Authelia or Keycloak login, like the servers
+#                             do (admin_servers_rule in group_vars). admin-ip still applies to them.
+#   traefik_route_app_login:  optional, "user:password" that the app itself asks for. Traefik sends it
+#                             after the admin login, so you log in only once.
 # app (optional): the app this route belongs to, written in the file so the installer can remove it
 #   with the app. site.yml sets it when it loops over the apps; it defaults to traefik_route_name.
 
@@ -16,71 +23,135 @@
   delegate_to: "{{ item }}"
   when: "'traefik' in apps and orchestrator == 'swarm'"
 
-- name: Add Traefik route for {{ traefik_route_name }}
-  ansible.builtin.copy:
-    dest: "{{ traefik_dir }}/dynamic/{{ traefik_route_name }}.yml"
-    content: |
-      # app: {{ app | default(traefik_route_name) }} (the installer removes this file when the app is removed)
-      http:
-        routers:
-          {{ traefik_route_name }}:
-            rule: Host(`{{ traefik_route_name }}.{{ domain }}`)
-            service: {{ traefik_route_name }}
-            middlewares:
-              - {{ traefik_route_middleware | default('admin-ip') }}
-        services:
-          {{ traefik_route_name }}:
-            loadBalancer:
-              servers:
-                - url: http://{{ node_ip }}:{{ traefik_route_port }}
-    mode: "0600"
-  loop: "{{ traefik_nodes }}"
-  delegate_to: "{{ item }}"
-  when: "'traefik' in apps and orchestrator == 'swarm'"
-
-# On k3s: a Kubernetes service that points to this server, and a Traefik route to it.
-# k3s applies files in its manifests folder by itself (and removes what a deleted file made).
-- name: Add k3s route for {{ traefik_route_name }}
-  ansible.builtin.copy:
-    dest: /var/lib/rancher/k3s/server/manifests/ansibro-route-{{ traefik_route_name }}.yaml
-    content: |
-      # app: {{ app | default(traefik_route_name) }} (the installer removes this file when the app is removed)
-      apiVersion: v1
-      kind: Service
-      metadata: { name: {{ traefik_route_name }}, namespace: ansibro }
-      spec:
-        ports: [{ port: {{ traefik_route_port }} }]
-      ---
-      apiVersion: discovery.k8s.io/v1
-      kind: EndpointSlice
-      metadata:
-        name: {{ traefik_route_name }}
-        namespace: ansibro
-        labels: { kubernetes.io/service-name: {{ traefik_route_name }} }
-      addressType: IPv4
-      ports: [{ port: {{ traefik_route_port }} }]
-      endpoints: [{ addresses: ["{{ node_ip }}"] }]
-      ---
-      apiVersion: traefik.io/v1alpha1
-      kind: IngressRoute
-      metadata: { name: {{ traefik_route_name }}, namespace: ansibro }
-      spec:
-        entryPoints: [websecure]
-        routes:
-          - match: Host(`{{ traefik_route_name }}.{{ domain }}`)
-            kind: Rule
-            middlewares:
-      {% if traefik_route_middleware | default('admin-ip') == 'authelia@file' %}
-              - { name: authelia }  # like Swarm: the Authelia login replaces the admin-ip limit
-      {% else %}
-              - { name: admin-ip }
-      {% endif %}
-      {% if traefik_route_middleware | default('admin-ip') == 'admin' %}
-              - { name: {{ k3s_admin_login }} }
-      {% endif %}
+- name: Route for {{ traefik_route_name }}
+  vars:
+    # sso: the extra login only when Authelia or Keycloak is installed; else it is admin-ip.
+    traefik_route_sso: "{{ traefik_route_middleware | default('admin-ip') == 'sso' and admin_sso != '' }}"
+    traefik_route_first: >-
+      {{ ('admin' if admin_sso else 'admin-ip') if traefik_route_middleware | default('admin-ip') == 'sso'
+      else traefik_route_middleware | default('admin-ip') }}
+  block:
+    - name: Add Traefik route for {{ traefik_route_name }}
+      ansible.builtin.copy:
+        dest: "{{ traefik_dir }}/dynamic/{{ traefik_route_name }}.yml"
+        content: |
+          # app: {{ app | default(traefik_route_name) }} (the installer removes this file when the app is removed)
+          http:
+            routers:
+              {{ traefik_route_name }}:
+                rule: Host(`{{ traefik_route_name }}.{{ domain }}`)
+                service: {{ traefik_route_name }}
+                middlewares:
+                  - {{ traefik_route_first }}
+          {% if traefik_route_app_login is defined %}
+                  - {{ traefik_route_name }}-login
+          {% endif %}
+          {% if traefik_route_sso %}
+              # The servers, and the paths that programs call, skip the Authelia or Keycloak login
+              # (not admin_allow_from). The app's own login still applies. The longer rule wins.
+              {{ traefik_route_name }}-open:
+                rule: >-
+                  Host(`{{ traefik_route_name }}.{{ domain }}`) && ({{ admin_servers_rule }}
+                  {%- for path in traefik_route_open_paths | default([]) %} || PathPrefix(`{{ path }}`){% endfor %})
+                service: {{ traefik_route_name }}
+                middlewares:
+                  - admin-ip
+          {% if traefik_route_app_login is defined %}
+                  - {{ traefik_route_name }}-login
+          {% endif %}
+          {% endif %}
             services:
-              - { name: {{ traefik_route_name }}, port: {{ traefik_route_port }} }
-        tls: {{ k3s_route_tls | to_json }}
-    mode: "0600"
-  delegate_to: "{{ swarm_leader }}"
-  when: "'traefik' in apps and orchestrator == 'k3s'"
+              {{ traefik_route_name }}:
+                loadBalancer:
+                  servers:
+                    - url: http://{{ node_ip }}:{{ traefik_route_port }}
+          {% if traefik_route_app_login is defined %}
+            middlewares:
+              # The app's own login, sent by Traefik (after the admin login).
+              {{ traefik_route_name }}-login:
+                headers:
+                  customRequestHeaders:
+                    Authorization: "Basic {{ traefik_route_app_login | b64encode }}"
+          {% endif %}
+        mode: "0600"
+      loop: "{{ traefik_nodes }}"
+      delegate_to: "{{ item }}"
+      when: "'traefik' in apps and orchestrator == 'swarm'"
+      diff: false  # may have the app's own login (traefik_route_app_login)
+
+    # On k3s: a Kubernetes service that points to this server, and a Traefik route to it.
+    # k3s applies files in its manifests folder by itself (and removes what a deleted file made).
+    - name: Add k3s route for {{ traefik_route_name }}
+      ansible.builtin.copy:
+        dest: /var/lib/rancher/k3s/server/manifests/ansibro-route-{{ traefik_route_name }}.yaml
+        content: |
+          # app: {{ app | default(traefik_route_name) }} (the installer removes this file when the app is removed)
+          apiVersion: v1
+          kind: Service
+          metadata: { name: {{ traefik_route_name }}, namespace: ansibro }
+          spec:
+            ports: [{ port: {{ traefik_route_port }} }]
+          ---
+          apiVersion: discovery.k8s.io/v1
+          kind: EndpointSlice
+          metadata:
+            name: {{ traefik_route_name }}
+            namespace: ansibro
+            labels: { kubernetes.io/service-name: {{ traefik_route_name }} }
+          addressType: IPv4
+          ports: [{ port: {{ traefik_route_port }} }]
+          endpoints: [{ addresses: ["{{ node_ip }}"] }]
+          ---
+          {% if traefik_route_app_login is defined %}
+          # The app's own login, sent by Traefik (after the admin login).
+          apiVersion: traefik.io/v1alpha1
+          kind: Middleware
+          metadata: { name: {{ traefik_route_name }}-login, namespace: ansibro }
+          spec:
+            headers:
+              customRequestHeaders:
+                Authorization: "Basic {{ traefik_route_app_login | b64encode }}"
+          ---
+          {% endif %}
+          apiVersion: traefik.io/v1alpha1
+          kind: IngressRoute
+          metadata: { name: {{ traefik_route_name }}, namespace: ansibro }
+          spec:
+            entryPoints: [websecure]
+            routes:
+              - match: Host(`{{ traefik_route_name }}.{{ domain }}`)
+                kind: Rule
+                middlewares:
+          {% if traefik_route_first == 'authelia@file' %}
+                  - { name: authelia }  # like Swarm: the Authelia login replaces the admin-ip limit
+          {% else %}
+                  - { name: admin-ip }
+          {% endif %}
+          {% if traefik_route_first == 'admin' %}
+                  - { name: {{ k3s_admin_login }} }
+          {% endif %}
+          {% if traefik_route_app_login is defined %}
+                  - { name: {{ traefik_route_name }}-login }
+          {% endif %}
+                services:
+                  - { name: {{ traefik_route_name }}, port: {{ traefik_route_port }} }
+          {% if traefik_route_sso %}
+              # The servers and pods, and the paths that programs call, skip the Authelia or Keycloak
+              # login (not admin_allow_from). The app's own login still applies. The longer rule wins.
+              - match: >-
+                  Host(`{{ traefik_route_name }}.{{ domain }}`) && ({{ admin_servers_rule }}
+                  {%- for path in traefik_route_open_paths | default([]) %} || PathPrefix(`{{ path }}`){% endfor %})
+                kind: Rule
+                middlewares:
+                  - { name: admin-ip }
+          {% if traefik_route_app_login is defined %}
+                  - { name: {{ traefik_route_name }}-login }
+          {% endif %}
+                services:
+                  - { name: {{ traefik_route_name }}, port: {{ traefik_route_port }} }
+          {% endif %}
+            tls: {{ k3s_route_tls | to_json }}
+        mode: "0600"
+      delegate_to: "{{ swarm_leader }}"
+      when: "'traefik' in apps and orchestrator == 'k3s'"
+      diff: false  # may have the app's own login (traefik_route_app_login)

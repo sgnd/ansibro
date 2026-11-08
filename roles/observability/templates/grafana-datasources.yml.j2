@@ -12,6 +12,10 @@ datasources:
     uid: alerts
     type: alertmanager
     url: http://{{ node_ip }}:{{ observability_alertmanager_port }}
+    basicAuth: true
+    basicAuthUser: {{ alertmanager_user }}
+    secureJsonData:
+      basicAuthPassword: "{{ alertmanager_password }}"
     jsonData:
       implementation: prometheus
     editable: false

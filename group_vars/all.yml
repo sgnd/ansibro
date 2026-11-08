@@ -36,6 +36,14 @@ admin_login: >-
 k3s_route_tls: "{{ {'certResolver': 'letsencrypt'} if tls == 'letsencrypt' else {} }}"
 # k3s: that login as a Traefik middleware in the "ansibro" namespace.
 k3s_admin_login: "{{ {'authelia': 'authelia', 'keycloak': 'oauth'}[admin_sso] | default('admin-auth') }}"
+# The servers' own addresses, and on k3s the pod range (pods, and a server that calls its own Traefik).
+# They always pass admin_allow_from: Uptime Kuma checks the pages from there.
+admin_servers: "{{ groups['all'] | map('extract', hostvars, 'node_ip') | list + (['10.42.0.0/16'] if orchestrator == 'k3s' else []) }}"
+# The same as a Traefik rule. Admin pages with their own login (Portainer, Grafana, ...) let these in
+# without the Authelia or Keycloak login, so Uptime Kuma's checks (and other calls from the servers'
+# ip) keep working. The app's own login still applies.
+admin_servers_rule: >-
+  {% for ip in admin_servers %}ClientIP(`{{ ip }}`){{ ' || ' if not loop.last else '' }}{% endfor %}
 
 # Swarm apps without data run on servers with the label tier=app, if there are any
 # (servers without server apps get it; see inventory.py).
@@ -84,3 +92,7 @@ restore: false
 # (beszel, the light choice, has its own agents and alert settings.)
 monitoring_app: "{{ 'victoria' if 'victoria' in apps else '' }}"
 monitoring_ip: "{{ hostvars[apps[monitoring_app]].node_ip if monitoring_app else '' }}"
+# Alertmanager (victoria) asks for this login: its API can mute every alert. vmalert, Grafana,
+# Uptime Kuma, Traefik and the installer log in with it. Made once, in state/secrets/alertmanager.
+alertmanager_user: ansibro
+alertmanager_password: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/alertmanager', chars=['ascii_letters', 'digits'], length=32) }}"

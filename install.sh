@@ -121,7 +121,8 @@ EOF
 }
 
 # Install Ansible in .venv. A copy of requirements.txt in .venv shows what is installed,
-# so this only runs again when requirements.txt changes.
+# so this only runs again when requirements.txt changes. --require-hashes: pip installs only files
+# whose sha256 is in requirements.txt, also from the offline bundle.
 venv=.venv
 # A .venv made with a Python that is too old or too new, or was removed since, does not work. Make it again.
 if [ -d "$venv" ] && ! python_ok "$venv/bin/python"; then
@@ -139,9 +140,9 @@ if ! cmp -s requirements.txt "$venv/requirements.txt"; then
   echo "Using $python ($("$python" --version 2>&1)) for $venv."
   "$python" -m venv "$venv" 2>/dev/null || { install_venv_package && "$python" -m venv "$venv"; }
   if $offline; then
-    "$venv/bin/pip" install --quiet --no-index --find-links bundle/python -r requirements.txt
+    "$venv/bin/pip" install --quiet --require-hashes --no-index --find-links bundle/python -r requirements.txt
   else
-    "$venv/bin/pip" install --quiet -r requirements.txt
+    "$venv/bin/pip" install --quiet --require-hashes -r requirements.txt
   fi
   cp requirements.txt "$venv/requirements.txt"
 fi

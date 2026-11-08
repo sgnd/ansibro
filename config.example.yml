@@ -20,7 +20,8 @@ ssh:
 # Who may open the admin web pages: Traefik dashboard, Kong Manager, Portainer, Swarmpit,
 # RabbitMQ, RustFS, NATS, Uptime Kuma, Beszel, OpenBao, Grafana, Alertmanager, the metrics and
 # logs pages, and Keycloak's admin console (/admin). Example: [203.0.113.0/24]
-# Empty = anyone, protected only by each page's password.
+# Empty = anyone on the internet, protected only by the logins: the installer warns about it.
+# With authelia or keycloak installed, every admin page also asks for that login (with a second factor).
 # (The Keycloak and Authelia login pages are for everyone, so they are not limited.)
 admin_allow_from: []
 
