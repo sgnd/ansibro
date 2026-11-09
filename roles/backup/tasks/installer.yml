@@ -1,0 +1,94 @@
+# config.yml and state/secrets/ go into the first manager's backup, for when state/ is lost
+# (docs/how-to.md, "Back up and restore"). They are encrypted here, on the installer machine, with
+# age for the key that keeps state/ encrypted, and only installer.tar.age goes to the server. So no
+# server (and no backup) holds them readable: only that key opens them.
+# Runs on the first manager.
+
+- name: Read the public key of the state key
+  ansible.builtin.command:
+    argv: [age-keygen, -y, "{{ backup_age_key }}"]
+  delegate_to: localhost
+  become: false
+  register: backup_age_recipient
+  changed_when: false
+  failed_when: false
+
+- name: Say that config.yml and state/ are not in the backup
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: config.yml and state/secrets/ are not in the backup: the backup keeps them only encrypted,
+      for the key {{ backup_age_key }}, and there is none (or age is not installed). Make one (see
+      docs/how-to.md, "Keep state/ safe and encrypted") and run ./install.sh again.
+  when: backup_age_recipient.rc != 0
+
+# ansibro 1.3 and older kept them readable here.
+- name: Remove the readable copies of config.yml and state/
+  ansible.builtin.file:
+    path: "{{ backup_dir }}/installer/{{ item }}"
+    state: absent
+  loop: [config.yml, state]
+
+- name: Keep config.yml and state/secrets/ encrypted for the backup
+  when: backup_age_recipient.rc == 0
+  block:
+    - name: Create folder for the installer files
+      ansible.builtin.file:
+        path: "{{ backup_dir }}/installer"
+        state: directory
+        mode: "0700"
+
+    # age encrypts differently every time: encrypt again only when something changed.
+    - name: Fingerprint config.yml, state/secrets/ and the key
+      ansible.builtin.set_fact:
+        backup_installer_sum: >-
+          {{ (backup_age_recipient.stdout ~ lookup('ansible.builtin.file', backup_config)
+          ~ backup_secret_files | map('basename') | join(',') ~ query('ansible.builtin.file', *backup_secret_files) | join(','))
+          | hash('sha256') }}
+      vars:
+        backup_config: "{{ lookup('ansible.builtin.env', 'ANSIBRO_CONFIG') }}"
+        backup_secret_files: "{{ query('ansible.builtin.fileglob', secrets_dir ~ '/*') | sort }}"
+      no_log: true
+
+    - name: Read the fingerprint of the copy on the server
+      ansible.builtin.slurp:
+        src: "{{ backup_dir }}/installer/installer.sha256"
+      register: backup_installer_old
+      failed_when: false
+
+    - name: Encrypt config.yml and state/secrets/ again
+      when: (backup_installer_old.content | default('') | b64decode | trim) != backup_installer_sum
+      block:
+        - name: Encrypt config.yml and state/secrets/
+          ansible.builtin.shell:
+            cmd: |
+              set -euo pipefail
+              tmp=$(mktemp -d)
+              trap 'rm -rf "$tmp"' EXIT
+              mkdir -p "$tmp/installer/state"
+              cp {{ lookup('ansible.builtin.env', 'ANSIBRO_CONFIG') | quote }} "$tmp/installer/config.yml"
+              cp -R "{{ secrets_dir }}" "$tmp/installer/state/secrets"
+              tar -C "$tmp" -cf - installer | age -r "{{ backup_age_recipient.stdout }}" -o "{{ playbook_dir }}/state/installer.tar.age"
+            executable: /bin/bash
+          delegate_to: localhost
+          become: false
+          changed_when: true
+
+        - name: Copy the encrypted files to the server
+          ansible.builtin.copy:
+            src: "{{ playbook_dir }}/state/installer.tar.age"
+            dest: "{{ backup_dir }}/installer/installer.tar.age"
+            mode: "0600"
+
+        - name: Remember what was encrypted
+          ansible.builtin.copy:
+            dest: "{{ backup_dir }}/installer/installer.sha256"
+            content: "{{ backup_installer_sum }}\n"
+            mode: "0600"
+
+      always:
+        - name: Delete the encrypted file on this machine
+          ansible.builtin.file:
+            path: "{{ playbook_dir }}/state/installer.tar.age"
+            state: absent
+          delegate_to: localhost
+          become: false

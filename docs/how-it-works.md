@@ -24,8 +24,10 @@ What the installer does, step by step, and things good to know.
 | SSH | `ssh.allow_from` (or anyone), and always the other servers' `host` (the installer may run on the first manager) |
 | 80, 443 | anyone, only on the servers Traefik runs on (see **Where Traefik runs** below) |
 | the ports a server needs: swarm, registry, its apps, monitoring agents | other servers in `config.yml` (from their `ip`) |
+| etcd for Patroni (managers): 12380 | the other managers only |
+| etcd for Patroni (managers): 12379 | the PostgreSQL servers only |
 | UDP 51820 | other servers' `host`, with `wireguard: true` |
-| everything | containers on Docker networks of the same server, also your own Docker Compose networks (with k3s also its pods, `10.42.0.0/16`, on `cni0` and `flannel.1`) |
+| everything except etcd | containers on Docker networks of the same server, also your own Docker Compose networks (with k3s also its pods, `10.42.0.0/16`, on `cni0` and `flannel.1`) |
 | your own ports | `firewall_allow` in `config.yml` (for example a VPN) |
 
 Everything else is blocked. Server apps use the host network, so the firewall controls them.
@@ -63,12 +65,17 @@ is open to everyone: the firewall cannot block it (that is how Docker works). Us
 **Between your servers.** A container on one server reaches another server with its server's IP,
 so it can use the same ports as that server. Most of them need a password. These do not, so they
 show their data to every container in the cluster: the monitoring agents, the metrics and logs
-(VictoriaMetrics and VictoriaLogs: reading and adding; deleting needs a key), etcd for Patroni, and
-Patroni's API for reading (changes on it need a login). Alertmanager needs a login, so a container
-cannot mute the alerts. Run only containers you trust.
+(VictoriaMetrics and VictoriaLogs: reading and adding; deleting needs a key), and Patroni's API for
+reading (changes on it need a login). Alertmanager needs a login, so a container cannot mute the alerts.
+etcd for Patroni is closed to every container (also on other servers: the firewall drops their calls
+to it before they leave their server), and it asks for a login (user `patroni`). Run only containers you trust.
 
 ## Good to know
 
+- **etcd for Patroni asks for a login.** User `patroni` (`state/secrets/etcd_patroni`) may only read and
+  write Patroni's keys; `root` (`state/secrets/etcd_root`) is for the installer. A change to etcd restarts
+  its members one at a time, and a change to PostgreSQL with Patroni restarts the servers one at a time,
+  the primary last after a switchover (writes stop for a few seconds).
 - **The first manager is special.** Portainer, Authelia and Swarmpit's databases run there and
   keep their data there. Keep it first in the `nodes` list: the installer stops if the first manager
   is not the one that made the swarm.
@@ -87,8 +94,19 @@ cannot mute the alerts. Run only containers you trust.
   `node.labels.tier == app` (Swarm) or `nodeSelector: { tier: app }` (k3s) in your own apps too.
   Set `labels: { tier: ... }` on a node to choose yourself. Portainer, Authelia and Swarmpit keep
   their data on the first manager, so they run there.
-- **The registry needs a login.** Every server logs in (password in `state/secrets/registry`),
-  so a container cannot push a fake image into it.
+- **The registry needs a login, and is read-only.** Every server logs in (password in `state/secrets/registry`).
+  Only the installer pushes images, and only while it runs; to push your own, run `sudo ansibro-registry open`
+  on a manager first (see [How to](how-to.md#your-own-images)).
+- **Apps run their images by digest** (`registry.ansibro:5000/<name>:<tag>@sha256:...`, the fingerprint of the
+  exact image), not only by tag. The installer reads each digest right after it pushed the image itself, and keeps
+  it in `state/images.yml`. An image pushed later under the same tag is never run, and the next install stops and says so.
+- **Traefik, Vector and the Beszel agent only read Docker**, through a socket proxy
+  ([socket-proxy](https://github.com/wollomatic/socket-proxy)): GET on a few parts of Docker's API, nothing that
+  starts or changes a container. Traefik faces the internet, so this matters most there. Portainer and Swarmpit
+  manage containers, so they use the Docker socket itself (see [Apps](apps.md#portainer-and-swarmpit-full-control-of-docker)).
+  cAdvisor runs privileged anyway (it reads the kernel's container stats).
+- **Swarm secrets.** Keycloak (and its oauth2-proxy) and Kong get their passwords as swarm secrets (files in
+  `/run/secrets`), not in their settings: whoever may read the swarm's services does not see them. (k3s: Kubernetes secrets.)
 - **k3s workers join with the agent token** (`state/secrets/k3s_agent_token`), the managers with the
   server token (`state/secrets/k3s_token`). The server token also gives the cluster's keys, so it stays
   on the managers.
@@ -118,6 +136,6 @@ cannot mute the alerts. Run only containers you trust.
 | `group_vars/`, `templates/`, `ansible.cfg` | Settings shared by all steps, the summary and `state/handover.json` templates, Ansible's settings. |
 | `requirements.txt`, `requirements.yml` | The Python packages (Ansible, each with the sha256 of its files: pip refuses others) and Ansible add-ons the installer downloads. |
 | `build-bundle.sh` | Builds an offline bundle. |
-| `scripts/` | Small helpers: open and close `state/`, check versions, scan images, write the hashes in `requirements.txt`. |
+| `scripts/` | Small helpers: open and close `state/` (and make its key), check versions, scan images, write the hashes in `requirements.txt`. |
 | `tests/` | `check.py` checks a real install; `test_config.py` checks `config.yml` mistakes; `test_handover.py` checks `state/handover.json` has the facts and no password. |
 | `.claude/skills/` | Help for AI agents (set up, install, add an app, update versions). |

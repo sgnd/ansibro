@@ -2,7 +2,7 @@
 services:
   # Collects the metrics of every server.
   victoriametrics:
-    image: {{ registry_addr }}/victoriametrics:{{ images.victoriametrics.tag }}
+    image: {{ image_ref.victoriametrics }}
     container_name: victoriametrics
     restart: always
     network_mode: host
@@ -25,7 +25,7 @@ services:
 
   # Keeps the logs that the agents send.
   victorialogs:
-    image: {{ registry_addr }}/victorialogs:{{ images.victorialogs.tag }}
+    image: {{ image_ref.victorialogs }}
     container_name: victorialogs
     restart: always
     network_mode: host
@@ -43,7 +43,7 @@ services:
 
   # Checks the alert rules against the metrics, and sends alerts to Alertmanager.
   vmalert:
-    image: {{ registry_addr }}/vmalert:{{ images.vmalert.tag }}
+    image: {{ image_ref.vmalert }}
     container_name: vmalert
     restart: always
     network_mode: host
@@ -65,7 +65,7 @@ services:
 
   # Sends the alerts to Telegram, email or a webhook, and the heartbeat to Uptime Kuma.
   alertmanager:
-    image: {{ registry_addr }}/alertmanager:{{ images.alertmanager.tag }}
+    image: {{ image_ref.alertmanager }}
     container_name: alertmanager
     restart: always
     network_mode: host
@@ -83,7 +83,7 @@ services:
 
   # Dashboards and log search.
   grafana:
-    image: {{ registry_addr }}/grafana:{{ images.grafana.tag }}
+    image: {{ image_ref.grafana }}
     container_name: grafana
     restart: always
     network_mode: host

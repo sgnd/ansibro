@@ -3,3 +3,16 @@ etcd_dir: "{{ apps_dir }}/etcd"
 etcd_client_port: 12379
 etcd_peer_port: 12380
 etcd_token: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/etcd_token', chars=['ascii_letters', 'digits'], length=24) }}"
+
+# etcd asks for a login (tasks/auth.yml). Generated once and saved in state/secrets/ on the installer machine.
+# root: only the installer uses it, to manage the users. patroni: PostgreSQL's Patroni (roles/postgres).
+etcd_root_password: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/etcd_root', chars=['ascii_letters', 'digits'], length=32) }}"
+etcd_patroni_password: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/etcd_patroni', chars=['ascii_letters', 'digits'], length=32) }}"
+# The keys Patroni uses: /service/<scope>/ (scope "ansibro", see roles/postgres). The patroni user may
+# read and write only these. The end of the range is the prefix with its last character + 1 ("/" -> "0").
+etcd_patroni_prefix: /service/ansibro/
+etcd_patroni_prefix_end: /service/ansibro0
+# The installer talks to etcd's JSON API (no password on a command line; the etcd image has no shell).
+etcd_api: "http://127.0.0.1:{{ etcd_client_port }}/v3"
+# Patroni's API login (the same file as in roles/postgres): tasks/auth.yml pauses Patroni with it.
+etcd_patroni_api_password: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/postgres_patroni_api', chars=['ascii_letters', 'digits'], length=24) }}"

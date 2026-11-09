@@ -83,14 +83,15 @@ Let's Encrypt can check the domain: the first manager with Docker Swarm, the fir
 `sudo k3s kubectl -n kube-system rollout restart deployment traefik` on the first manager.
 It asks Let's Encrypt for the certificates again.
 
-At the end it prints how to reach each app, and saves it with all passwords in `state/summary.md`.
+At the end it prints how to reach each app, and saves it in `state/summary.md`. Each password is a file in `state/secrets/`.
 
 Run `./install.sh` again any time. It changes what is different in `config.yml`
 (an app removed from `config.yml` stops; to remove a server, see [How to](docs/how-to.md#remove-a-server)).
 
-> **Back up the `state/` folder.** It holds all generated passwords. If you lose it,
-> the next run makes new passwords that do not match your running databases.
-> Always run the installer from the same machine, or copy `state/` with it.
+> **Back up the `state/` folder and its key.** `state/` holds all generated passwords. The installer keeps
+> it encrypted (`state.age`) with a key it makes the first time, `~/.config/ansibro/age.key`: save a copy of
+> that key in a password manager. If you lose `state/`, the next run makes new passwords that do not match
+> your running databases. Always run the installer from the same machine, or copy `state.age` and the key with it.
 > See [Keep `state/` safe](docs/how-to.md#keep-state-safe-and-encrypted).
 
 ## A small example

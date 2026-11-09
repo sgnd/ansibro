@@ -1,5 +1,6 @@
-# etcd on every manager, for Patroni (PostgreSQL on 2 or more servers). Only these servers and the
-# PostgreSQL servers can reach it (firewall). It holds no app data.
+# etcd on every manager, for Patroni (PostgreSQL on 2 or more servers). It holds no app data.
+# The firewall lets only the other managers (peer port) and the PostgreSQL servers (client port) in,
+# no container, and etcd asks for a login (user patroni; tasks/auth.yml turns it on).
 
 - name: Create etcd folders
   ansible.builtin.file:
@@ -43,24 +44,50 @@
     dest: "{{ etcd_dir }}/compose.yml"
     mode: "0600"
 
-# All members at once: each waits for the others to form the cluster.
-- name: Start etcd
+- name: Look for etcd data
+  ansible.builtin.stat:
+    path: "{{ etcd_dir }}/data/member"
+  register: etcd_data
+
+# A new cluster: all members at once, each waits for the others to form the cluster.
+- name: Start a new etcd cluster
   ansible.builtin.command:
     cmd: docker compose up -d
     chdir: "{{ etcd_dir }}"
   register: etcd_up
   changed_when: "'Started' in etcd_up.stderr or 'Recreated' in etcd_up.stderr"
+  when: not etcd_data.stat.exists
 
+# A running cluster: one member at a time, the next one only when this one is back. So etcd keeps
+# its quorum while a change (a new image, a new setting) restarts its members, and Patroni keeps it too.
+- name: Start etcd one member at a time
+  ansible.builtin.include_tasks: restart.yml
+  loop: >-
+    {{ groups['managers'] | intersect(ansible_play_hosts) | map('extract', hostvars)
+    | selectattr('etcd_data.stat.exists') | map(attribute='inventory_hostname') | list }}
+  loop_control:
+    loop_var: etcd_member
+  run_once: true
+
+# /health answers without a login, also when etcd asks for one.
 - name: Wait for etcd
-  ansible.builtin.command: docker exec etcd etcdctl --endpoints=http://127.0.0.1:{{ etcd_client_port }} endpoint health
+  ansible.builtin.uri:
+    url: "http://{{ node_ip }}:{{ etcd_client_port }}/health"
   register: etcd_health
-  until: etcd_health.rc == 0
+  until: (etcd_health.json | default({})).health | default('') == 'true'
   retries: 30
   delay: 5
-  changed_when: false
 
 - name: Remember etcd's managers
   ansible.builtin.copy:
     dest: "{{ etcd_dir }}/managers"
     content: "{{ groups['managers'] | join(',') }}\n"
     mode: "0600"
+
+# The users root (for the installer) and patroni. The login itself is turned on later (tasks/auth.yml),
+# once every Patroni has its password: Patroni works with and without it.
+- name: Set up etcd's users
+  ansible.builtin.include_tasks: users.yml
+  args:
+    apply:
+      run_once: true

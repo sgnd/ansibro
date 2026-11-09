@@ -1,2 +1,4 @@
 openbao_dir: "{{ apps_dir }}/openbao"
 openbao_url: "http://{{ node_ip }}:8200"
+# The admin user's password (method "Username" on the login page). Generated once, in state/secrets/.
+openbao_admin_password: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/openbao_admin', chars=['ascii_letters', 'digits'], length=32) }}"

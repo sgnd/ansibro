@@ -1,0 +1,165 @@
+# Turn on etcd's login, once (site.yml runs this on the first manager, after PostgreSQL).
+# Order: the users exist (tasks/users.yml), every Patroni has its password (roles/postgres), then this.
+# Patroni works both with and without the login, and logs in again by itself when it comes on.
+#
+# To be safe Patroni is paused meanwhile: a paused Patroni keeps PostgreSQL running as it is, also
+# when it cannot reach etcd (it never stops the primary). Each PostgreSQL server must then reach
+# etcd with the login within a minute. If one does not, the login goes off again, Patroni goes on
+# as before, and the install stops with the error.
+
+- name: Ask etcd if its login is on
+  ansible.builtin.uri:
+    url: "{{ etcd_api }}/auth/status"
+    method: POST
+    body_format: json
+    body: {}
+  register: etcd_auth_status
+
+- name: Turn on etcd's login
+  when: not etcd_auth_status.json.enabled | default(false)
+  block:
+    # Patroni's API on each PostgreSQL server: reading needs no login.
+    - name: Read the PostgreSQL cluster
+      ansible.builtin.uri:
+        url: "http://{{ hostvars[app_nodes.postgres[0]].node_ip }}:8008/cluster"
+      register: etcd_pg_cluster
+      failed_when: false
+
+    - name: Check that every PostgreSQL server runs, with a primary
+      ansible.builtin.set_fact:
+        etcd_auth_ready: >-
+          {{ (etcd_pg_cluster.json | default({})).members | default([]) | selectattr('role', 'equalto', 'leader')
+          | selectattr('state', 'equalto', 'running') | list | length == 1
+          and app_nodes.postgres | difference((etcd_pg_cluster.json | default({})).members | default([])
+          | selectattr('state', 'in', ['running', 'streaming']) | map(attribute='name') | list) | length == 0 }}
+
+    # Not an error: a server that is down gets the password with its next start, and the next
+    # ./install.sh turns the login on.
+    - name: Leave etcd's login off for now
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: etcd (for PostgreSQL with Patroni) does not ask for a login yet: not every PostgreSQL
+          server runs now ({{ app_nodes.postgres | join(', ') }}). Run ./install.sh again when they all do.
+      when: not etcd_auth_ready
+
+    - name: Turn on etcd's login with Patroni paused
+      when: etcd_auth_ready
+      block:
+        # So Patroni and etcd surely use the same password (users.yml sets it only for a new user).
+        - name: Set the patroni password in etcd
+          ansible.builtin.uri:
+            url: "{{ etcd_api }}/auth/user/changepw"
+            method: POST
+            body_format: json
+            body: { name: patroni, password: "{{ etcd_patroni_password }}" }
+          changed_when: false
+          no_log: true
+
+        - name: Read Patroni's settings
+          ansible.builtin.uri:
+            url: "http://{{ hostvars[app_nodes.postgres[0]].node_ip }}:8008/config"
+          register: etcd_pg_config
+
+        - name: Pause Patroni
+          ansible.builtin.uri:
+            url: "http://{{ hostvars[app_nodes.postgres[0]].node_ip }}:8008/config"
+            method: PATCH
+            body_format: json
+            body: { pause: true }
+            url_username: patroni
+            url_password: "{{ etcd_patroni_api_password }}"
+            force_basic_auth: true
+          when: not etcd_pg_config.json.pause | default(false)  # paused by hand: leave it so
+          changed_when: true
+          no_log: true
+
+        - name: Wait until every Patroni is paused
+          ansible.builtin.uri:
+            url: "http://{{ hostvars[item].node_ip }}:8008/patroni"
+          loop: "{{ app_nodes.postgres }}"
+          register: etcd_pg_paused
+          until: etcd_pg_paused.json.pause | default(false)
+          retries: 12
+          delay: 5
+
+        # Patroni's dcs_last_seen (below) is the PostgreSQL server's clock: take the time there.
+        - name: Remember when the login came on
+          ansible.builtin.command: date +%s
+          delegate_to: "{{ app_nodes.postgres[0] }}"
+          register: etcd_auth_since
+          changed_when: false
+
+        - name: Turn on etcd's login
+          ansible.builtin.uri:
+            url: "{{ etcd_api }}/auth/enable"
+            method: POST
+            body_format: json
+            body: {}
+          changed_when: true
+
+        # dcs_last_seen: the last time this Patroni talked to etcd without an error.
+        - name: Wait until every Patroni reached etcd with the login
+          ansible.builtin.uri:
+            url: "http://{{ hostvars[item].node_ip }}:8008/patroni"
+          loop: "{{ app_nodes.postgres }}"
+          register: etcd_pg_seen
+          until: etcd_pg_seen.json.dcs_last_seen | default(0) | int > etcd_auth_since.stdout | int
+          retries: 12
+          delay: 5
+
+        - name: Let Patroni go on
+          ansible.builtin.uri:
+            url: "http://{{ hostvars[app_nodes.postgres[0]].node_ip }}:8008/config"
+            method: PATCH
+            body_format: json
+            body: { pause: false }
+            url_username: patroni
+            url_password: "{{ etcd_patroni_api_password }}"
+            force_basic_auth: true
+          when: not etcd_pg_config.json.pause | default(false)
+          changed_when: true
+          no_log: true
+
+      rescue:
+        - name: Log in to etcd as root
+          ansible.builtin.uri:
+            url: "{{ etcd_api }}/auth/authenticate"
+            method: POST
+            body_format: json
+            body: { name: root, password: "{{ etcd_root_password }}" }
+            status_code: [200, 400]  # 400: the login is not on (it failed before it came on)
+          register: etcd_rescue_login
+          no_log: true
+
+        - name: Turn etcd's login off again
+          ansible.builtin.uri:
+            url: "{{ etcd_api }}/auth/disable"
+            method: POST
+            headers: { Authorization: "{{ etcd_rescue_login.json.token }}" }
+            body_format: json
+            body: {}
+          when: etcd_rescue_login.status == 200
+          changed_when: true
+          no_log: true
+
+        - name: Let Patroni go on
+          ansible.builtin.uri:
+            url: "http://{{ hostvars[app_nodes.postgres[0]].node_ip }}:8008/config"
+            method: PATCH
+            body_format: json
+            body: { pause: false }
+            url_username: patroni
+            url_password: "{{ etcd_patroni_api_password }}"
+            force_basic_auth: true
+          # Only when this run paused it (not paused by hand, and not failed before the pause).
+          when: etcd_pg_config.json is defined and not etcd_pg_config.json.pause | default(false)
+          changed_when: true
+          no_log: true
+
+        - name: Stop the install
+          ansible.builtin.fail:
+            msg: >-
+              etcd's login could not be turned on: a Patroni did not reach etcd with it
+              ({{ ansible_failed_result.msg | default('see the task above') }}). The login is off again and
+              PostgreSQL runs as before. Check the logs: sudo docker logs postgres (on the PostgreSQL servers)
+              and sudo docker logs etcd (on the managers).

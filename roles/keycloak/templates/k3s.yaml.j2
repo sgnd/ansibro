@@ -23,7 +23,7 @@ spec:
 {% endif %}
       containers:
         - name: keycloak
-          image: {{ registry_addr }}/keycloak:{{ images.keycloak.tag }}
+          image: {{ image_ref.keycloak }}
           args: [start]
           envFrom: [{ secretRef: { name: keycloak } }]
           env:
@@ -90,7 +90,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: oauth2-proxy
-          image: {{ registry_addr }}/oauth2-proxy:{{ images['oauth2-proxy'].tag }}
+          image: {{ image_ref['oauth2-proxy'] }}
           args:
 {% for arg in keycloak_oauth_args %}
             - "{{ arg }}"

@@ -43,7 +43,8 @@ The installer sees the `bundle/` folder and uses it instead of the internet.
 ## After the install
 
 - Run `.venv/bin/python tests/check.py` where you ran `./install.sh`. Every check must PASS.
-- Read `state/summary.md`. It lists every app's address and passwords. Don't paste the passwords into chat.
+- Read `state/summary.md`. It lists every app's address and names the file of each password in
+  `state/secrets/` (`state/` is encrypted: `scripts/state.sh open` first). Don't paste the passwords into chat.
 - Tell the user to **back up `state/`**. If it is lost, the next run makes new passwords that don't match the running databases.
 - DNS for `*.<domain>` must point to the public IP of the servers Traefik runs on. The end of the install
   and `state/summary.md` (section DNS) name them. Swarm: the first manager with Let's Encrypt, else every manager.

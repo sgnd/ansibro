@@ -1,6 +1,6 @@
 services:
   uptimekuma:
-    image: {{ registry_addr }}/uptimekuma:{{ images.uptimekuma.tag }}
+    image: {{ image_ref.uptimekuma }}
     container_name: uptimekuma
     restart: always
     # Host network: the firewall decides who can connect.

@@ -24,13 +24,43 @@
   vars:
     registry_mirror_images: "{{ ['keycloak'] + (['oauth2-proxy'] if admin_sso == 'keycloak' else []) }}"
 
+# Swarm: the passwords reach the containers as swarm secrets (files in /run/secrets), not in their
+# settings: whoever may read the swarm's services (Traefik, through socket-proxy, for one) does not
+# see them. A swarm secret cannot change, so its name has the file's checksum: a new password is a new secret.
+- name: Create the folder for Keycloak's secrets
+  ansible.builtin.file:
+    path: "{{ keycloak_dir }}/secrets"
+    state: directory
+    mode: "0700"
+  when: orchestrator == 'swarm'
+
+- name: Write Keycloak's secrets
+  ansible.builtin.copy:
+    dest: "{{ keycloak_dir }}/secrets/{{ item.name }}"
+    content: "{{ item.value }}"
+    mode: "0600"
+  loop:
+    - { name: db_password, value: "{{ keycloak_db_password }}" }
+    - { name: admin_password, value: "{{ keycloak_admin_password }}" }
+    - { name: oauth_client_secret, value: "{{ keycloak_oauth_client_secret }}" }
+    - { name: oauth_cookie_secret, value: "{{ keycloak_oauth_cookie_secret }}" }
+  loop_control:
+    label: "{{ item.name }}"
+  register: keycloak_secret_files
+  when: orchestrator == 'swarm'
+  no_log: true
+
 - name: Write Keycloak stack
   when: orchestrator == 'swarm'
   ansible.builtin.template:
     src: stack.yml.j2
     dest: "{{ keycloak_dir }}/stack.yml"
     mode: "0600"
-  diff: false  # has a password
+  vars:
+    # Each secret's name ends with the checksum of its file (see above).
+    keycloak_secret_sums: >-
+      {{ dict(keycloak_secret_files.results | map(attribute='item.name')
+      | zip(keycloak_secret_files.results | map(attribute='checksum') | map('truncate', 12, true, ''))) }}
   register: keycloak_stack
 
 - name: Deploy Keycloak

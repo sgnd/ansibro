@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Open the registry on this server ({{ inventory_hostname }}) for pushes, or close it. Made by ansibro.
+# The registry is read-only: the servers pull from it, and only the installer pushes (it opens it
+# for that, and closes it again at the end). To push your own images:
+#
+#   sudo ansibro-registry open        takes pushes for 1 hour (or: open 20min), then closes by itself
+#   sudo ansibro-registry close       read-only again now
+#   sudo ansibro-registry status
+#
+# Each open and close restarts the registry: for a second or two the servers cannot pull.
+# Deploy your own images by digest too (<image>:<tag>@sha256:...): see docs/how-to.md.
+set -euo pipefail
+config={{ registry_dir }}/config/config.yml
+
+set_readonly() {
+  sed -i -E "s/readonly: \{enabled: (true|false)\}/readonly: {enabled: $1}/" "$config"
+  (cd {{ registry_dir }} && docker compose restart >/dev/null)
+  for _ in $(seq 30); do
+    # 401: it answers (and asks for the login).
+    if [ "$(curl -s -o /dev/null -w '%{http_code}' --cacert /etc/docker/certs.d/{{ registry_addr }}/ca.crt \
+         https://{{ node_ip }}:{{ registry_port }}/v2/)" = 401 ]; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "error: the registry did not start again: sudo docker logs registry-registry-1" >&2
+  exit 1
+}
+
+# The timer that closes the registry after "open" (a systemd timer made by systemd-run).
+stop_timer() {
+  systemctl stop ansibro-registry-close.timer 2>/dev/null || true
+  systemctl reset-failed ansibro-registry-close.service 2>/dev/null || true
+}
+
+case "${1:-status}" in
+  open)
+    time="${2:-1h}"
+    stop_timer
+    set_readonly false
+    systemd-run --quiet --unit ansibro-registry-close --on-active="$time" /usr/local/bin/ansibro-registry close
+    echo "The registry on {{ inventory_hostname }} takes pushes for $time. sudo ansibro-registry close ends it now."
+    ;;
+  close)
+    # (When the timer runs this, stopping the timer does not stop this command.)
+    stop_timer
+    set_readonly true
+    echo "The registry on {{ inventory_hostname }} is read-only."
+    ;;
+  status)
+    if grep -q 'readonly: {enabled: true}' "$config"; then
+      echo "The registry on {{ inventory_hostname }} is read-only."
+    else
+      echo "The registry on {{ inventory_hostname }} takes pushes (sudo ansibro-registry close)."
+    fi
+    ;;
+  *)
+    echo "usage: sudo ansibro-registry open [time] | close | status" >&2
+    exit 1
+    ;;
+esac

@@ -42,7 +42,7 @@
 # Authelia makes the admin password and its hash itself, so the password is never on a command line.
 - name: Make admin password
   ansible.builtin.command: >-
-    docker run --rm {{ registry_addr }}/authelia:{{ images.authelia.tag }}
+    docker run --rm {{ image_ref.authelia }}
     authelia crypto hash generate argon2 --random --random.length 24 --random.charset alphanumeric
   register: authelia_hash
   when: not authelia_users.stat.exists

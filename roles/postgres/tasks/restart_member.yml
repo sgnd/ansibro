@@ -1,0 +1,22 @@
+# Restart PostgreSQL (Patroni) on one server and wait until it is back in the cluster, with a primary.
+# Used by tasks/rolling.yml. Input: postgres_member
+- name: Restart PostgreSQL on {{ postgres_member }}
+  ansible.builtin.command:
+    cmd: docker compose up -d
+    chdir: "{{ postgres_dir }}"
+  delegate_to: "{{ postgres_member }}"
+  register: postgres_member_up
+  changed_when: "'Started' in postgres_member_up.stderr or 'Recreated' in postgres_member_up.stderr"
+
+# "streaming": a replica that follows the primary. A replica that has to copy much may take a while.
+- name: Wait until this server is back in the PostgreSQL cluster, {{ postgres_member }}
+  ansible.builtin.uri:
+    url: "http://{{ hostvars[postgres_member].node_ip }}:8008/cluster"
+  register: postgres_member_back
+  until: >-
+    (postgres_member_back.json | default({})).members | default([]) | selectattr('name', 'equalto', postgres_member)
+    | selectattr('state', 'in', ['running', 'streaming']) | list | length == 1
+    and (postgres_member_back.json | default({})).members | default([]) | selectattr('role', 'equalto', 'leader')
+    | selectattr('state', 'equalto', 'running') | list | length == 1
+  retries: 60
+  delay: 5

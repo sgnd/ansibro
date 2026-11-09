@@ -130,4 +130,4 @@ openbao:
   category: secrets
   runs_on: node
   license: MPL-2.0
-  info: "http://<ip>:8200, https://openbao.<domain> (needs traefik) (root token state/secrets/openbao_root_token)"
+  info: "http://<ip>:8200, https://openbao.<domain> (needs traefik) (user admin, password state/secrets/openbao_admin)"

@@ -1,6 +1,6 @@
 services:
   nats:
-    image: {{ registry_addr }}/nats:{{ images.nats.tag }}
+    image: {{ image_ref.nats }}
     container_name: nats
     restart: always
     # Host network: the firewall decides who can connect.

@@ -48,9 +48,11 @@
       # Spilo starts Patroni without the container's PATRONI_* settings; it adds this to Patroni's config.
       # - name and addresses: else Spilo uses the host name and its address (can be 127.0.1.1).
       # - Patroni's API: reading (health, which server is the primary) is open, changes need this login.
+      # - etcd's login (user patroni). Patroni also works while etcd does not ask for it yet.
       SPILO_CONFIGURATION={{ postgres_spilo_config | to_json }}
       {% endif %}
     mode: "0600"
+  register: postgres_env
   no_log: true
   vars:
     postgres_spilo_config:
@@ -60,6 +62,7 @@
         authentication: {username: patroni, password: "{{ postgres_patroni_api_password }}"}
       postgresql:
         connect_address: "{{ node_ip }}:5432"
+      etcd3: {username: patroni, password: "{{ postgres_etcd_password }}"}
 
 - name: Mirror PostgreSQL image
   ansible.builtin.include_role:
@@ -73,6 +76,7 @@
     src: "{{ 'patroni-compose.yml.j2' if postgres_patroni else 'compose.yml.j2' }}"
     dest: "{{ postgres_dir }}/compose.yml"
     mode: "0600"
+  register: postgres_compose
 
 # Patroni: a server that joins the cluster again may have an old copy of the data. It can differ
 # from the primary's, and then it cannot follow the primary. So when PostgreSQL left this server
@@ -109,12 +113,35 @@
         | rejectattr('name', 'equalto', inventory_hostname) | list | length > 0
       changed_when: true
 
+# Patroni: a running server whose settings or image changed restarts one at a time, the primary
+# last and only after it handed over to a replica (tasks/rolling.yml). Before, all of them restarted
+# together, and the database was down until they agreed on a new primary.
+- name: Look for a running PostgreSQL
+  ansible.builtin.command: docker ps -q --filter name=^postgres$
+  register: postgres_running
+  changed_when: false
+  when: postgres_patroni
+
+- name: Decide how PostgreSQL starts
+  ansible.builtin.set_fact:
+    postgres_rolling: >-
+      {{ postgres_patroni and postgres_running.stdout != '' and (postgres_env.changed or postgres_compose.changed) }}
+
 - name: Start PostgreSQL
   ansible.builtin.include_role:
     name: docker
     tasks_from: compose
   vars:
     docker_compose_app: postgres
+  when: not postgres_rolling
+
+- name: Restart PostgreSQL one server at a time
+  ansible.builtin.include_tasks: rolling.yml
+  when: postgres_rolling_nodes | length > 0
+  vars:
+    postgres_rolling_nodes: >-
+      {{ app_nodes.postgres | intersect(ansible_play_hosts) | map('extract', hostvars)
+      | selectattr('postgres_rolling', 'defined') | selectattr('postgres_rolling') | map(attribute='inventory_hostname') | list }}
 
 # With Patroni the servers agree on a primary first; then this finds it (postgres_primary_node).
 - name: Find the PostgreSQL primary

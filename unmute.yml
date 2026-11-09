@@ -1,5 +1,6 @@
-# Ends the installer's mute of alerts now. install.sh runs it when site.yml fails, so alerts are
-# sent again right away (a good install ends the mute itself: the last play in site.yml).
+# Ends the installer's mute of alerts now, and makes the registry read-only again. install.sh runs it
+# when site.yml fails, so alerts are sent again right away and the registry takes no pushes (a good
+# install does both itself: the last plays in site.yml).
 # Run it by hand too: .venv/bin/ansible-playbook unmute.yml
 - name: Unmute alerts
   hosts: all
@@ -31,3 +32,14 @@
           loop_control:
             label: "{{ item.id }}"
           changed_when: true
+
+- name: Registry read-only
+  hosts: managers[0]
+  gather_facts: false
+  tasks:
+    - name: Make the registry read-only again
+      ansible.builtin.include_role:
+        name: registry
+        tasks_from: mode
+      vars:
+        registry_mode: close

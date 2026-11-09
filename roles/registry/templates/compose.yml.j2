@@ -15,6 +15,7 @@ services:
       REGISTRY_AUTH_HTPASSWD_REALM: ansibro
       REGISTRY_AUTH_HTPASSWD_PATH: /auth/htpasswd
     volumes:
+      - ./config:/etc/distribution:ro  # a folder, so a changed config.yml shows up after a restart
       - ./auth:/auth:ro
       - ./certs:/certs:ro
       - ./data:/var/lib/registry

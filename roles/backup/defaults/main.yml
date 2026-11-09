@@ -1,7 +1,26 @@
 backup_dir: "{{ apps_dir }}/backup"
-# The restic password. Without it the backups cannot be read: keep state/ safe, outside the cluster.
-backup_password: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/restic', chars=['ascii_letters', 'digits'], length=40) }}"
+# Each server has its own restic repository, <backup.repository>/servers/<server name>, with its own
+# password (state/secrets/restic_<server name>). So a server cannot read another server's backups
+# (the first manager's has the swarm), and cannot add a fake backup for another server.
+# (b2:, gs:, azure: and swift: without a folder, like b2:my-bucket, get ":/servers/<name>".)
+backup_repository_base: "{{ backup.repository | string | regex_replace('/+$', '') }}"
+backup_repository: >-
+  {{ backup_repository_base ~ (':' if backup_repository_base is match('^(b2|gs|azure|swift):[^:]+$') else '')
+  ~ '/servers/' ~ inventory_hostname }}
+backup_password: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/restic_' ~ inventory_hostname, chars=['ascii_letters', 'digits'], length=40) }}"
 backup_time: "{{ backup.time | default('02:00') }}"
 backup_keep_daily: "{{ backup.keep_daily | default(7) }}"
 backup_keep_weekly: "{{ backup.keep_weekly | default(4) }}"
 backup_keep_monthly: "{{ backup.keep_monthly | default(6) }}"
+
+# The folders a backup may hold (see templates/ansibro-backup.sh.j2). A restore puts back only these.
+backup_restore_paths:
+  - "{{ backup_dir }}/stage"
+  - "{{ apps_dir }}/rustfs"
+  - "{{ apps_dir }}/garage/data"
+  - /var/lib/rancher/k3s/storage
+
+# config.yml and state/secrets/ go into the first manager's backup encrypted with age, for the key
+# that keeps state/ encrypted on the installer machine (scripts/state.sh). Only that key opens them:
+# the servers never hold them readable. No key there: no copy (a warning says so).
+backup_age_key: "{{ lookup('ansible.builtin.env', 'ANSIBRO_KEY') or lookup('ansible.builtin.env', 'HOME') ~ '/.config/ansibro/age.key' }}"

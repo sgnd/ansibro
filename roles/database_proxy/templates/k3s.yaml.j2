@@ -22,7 +22,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: haproxy
-          image: {{ registry_addr }}/haproxy:{{ images.haproxy.tag }}
+          image: {{ image_ref.haproxy }}
           ports: [{ containerPort: {{ database_port }} }]
           volumeMounts: [{ name: config, mountPath: /usr/local/etc/haproxy }]
       volumes:

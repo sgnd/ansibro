@@ -4,34 +4,12 @@
 - name: Write backup settings
   ansible.builtin.import_tasks: settings.yml
 
-# The first manager also keeps a copy of config.yml and state/, so they are in the backup too.
-- name: Create folder for the installer files
-  ansible.builtin.file:
-    path: "{{ backup_dir }}/installer"
-    state: directory
-    mode: "0700"
+# The first manager also keeps config.yml and state/secrets/ for the backup, encrypted (installer.yml).
+- name: Keep the installer files, encrypted
+  ansible.builtin.include_tasks: installer.yml
   when: inventory_hostname == swarm_leader
 
-- name: Copy config.yml for the backup
-  ansible.builtin.copy:
-    src: "{{ lookup('env', 'ANSIBRO_CONFIG') }}"
-    dest: "{{ backup_dir }}/installer/config.yml"
-    mode: "0600"
-  when: inventory_hostname == swarm_leader
-  diff: false  # may have keys
-
-# Only the passwords: state/summary.md is made again by every install (and its date changes each time).
-- name: Copy state/ for the backup
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/state/secrets/"
-    dest: "{{ backup_dir }}/installer/state/secrets/"
-    mode: "0600"
-    directory_mode: "0700"
-  when: inventory_hostname == swarm_leader
-  diff: false  # has passwords
-
-# One server at a time: with a shared repository (S3, rest-server) the first one creates it,
-# with a folder each server has its own. "init" first: it stops at once when the repository is
+# Each server has its own repository. "init" first: it stops at once when the repository is
 # there. (restic 0.17 and newer try a missing S3 bucket again for 15 minutes, so "cat config" first
 # could wait that long.)
 - name: Create the backup repository if it is not there
@@ -46,7 +24,6 @@
     esac
   register: backup_repo
   changed_when: "'created restic repository' in backup_repo.stdout"
-  throttle: 1
   # Some S3 servers show a new repository a moment later; the next try then finds it.
   retries: 3
   delay: 5
@@ -103,4 +80,15 @@
 - name: Run the first backup
   ansible.builtin.command: /usr/local/bin/ansibro-backup
   when: not backup_last.stat.exists
+  changed_when: true
+
+# The repository changed (for example the move to one repository per server in ansibro 1.4): the
+# next backup copies everything again, which can take long with much data. It starts now, but the
+# install does not wait for it: sudo systemctl status ansibro-backup shows how it goes.
+- name: Start a backup to the new repository
+  ansible.builtin.systemd_service:
+    name: ansibro-backup.service
+    state: started
+    no_block: true
+  when: backup_last.stat.exists and backup_settings.changed
   changed_when: true

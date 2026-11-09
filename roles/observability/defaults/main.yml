@@ -54,3 +54,7 @@ observability_monitor_password: "{{ lookup('ansible.builtin.password', secrets_d
 # key, a container in the cluster can no longer delete metrics or hide logs. (The Alertmanager login
 # is alertmanager_password in group_vars.)
 observability_admin_key: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/victoria_admin_key', chars=['ascii_letters', 'digits'], length=32) }}"
+
+# What Vector may ask Docker for (GET only, through docker-proxy in agent-compose.yml.j2): the list of
+# containers, their settings, their logs, and Docker's events.
+observability_socket_proxy_get: '^/(v[0-9.]+/)?(_ping|version|info|events|containers/json|containers/[a-zA-Z0-9_.-]+/(json|logs))$'

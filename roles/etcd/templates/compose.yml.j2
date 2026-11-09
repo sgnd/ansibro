@@ -2,7 +2,7 @@
 # One member on each manager. Made by ansibro.
 services:
   etcd:
-    image: {{ registry_addr }}/etcd:{{ images.etcd.tag }}
+    image: {{ image_ref.etcd }}
     container_name: etcd
     restart: always
     # Host network: the firewall decides who can connect.

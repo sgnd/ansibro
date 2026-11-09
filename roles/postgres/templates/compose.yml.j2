@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: {{ registry_addr }}/postgres:{{ images.postgres.tag }}
+    image: {{ image_ref.postgres }}
     container_name: postgres
     restart: always
     # Host network: the firewall decides who can connect.

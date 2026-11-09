@@ -1,6 +1,6 @@
 services:
   rustfs:
-    image: {{ registry_addr }}/rustfs:{{ images.rustfs.tag }}
+    image: {{ image_ref.rustfs }}
     container_name: rustfs
     restart: always
     # Host network: the firewall decides who can connect.

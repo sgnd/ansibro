@@ -110,7 +110,7 @@
     apply:
       run_once: true
   vars:
-    registry_mirror_images: [node-exporter, cadvisor, vector, postgres-exporter, mysqld-exporter, redis-exporter]
+    registry_mirror_images: [node-exporter, cadvisor, vector, socket-proxy, postgres-exporter, mysqld-exporter, redis-exporter]
 
 - name: Write monitoring agent compose file
   ansible.builtin.template:

@@ -1,66 +1,198 @@
-# Copy pinned images into the local registry as <registry>/<name>:<tag>.
-# Online: copied straight from the internet (the amd64 build). Offline: loaded from the bundle.
-# Runs on the first manager, and fills the registry of every manager.
+# Copy pinned images into the local registry as <registry>/<name>:<tag>, on every manager.
+# Online: copied straight from the internet (the amd64 build, by the digest in versions.yml).
+# Offline: loaded from the bundle. Runs once, on the first manager, for all managers' registries.
 # Input: registry_mirror_images (list of keys in versions.yml images).
+#
+# Apps run each image by the digest of its amd64 build (image_ref in group_vars). The installer
+# reads that digest right after it pushed the image itself, and keeps it in state/images.yml.
+# On every run each registry must still have exactly that image under the tag: an image that
+# someone else pushed under the same tag (with the registry password) stops the install, and is
+# never run. An image without a digest in state/images.yml (a new image, a new tag, or a cluster
+# from before ansibro 1.4) is pushed again first, so its digest always comes from the installer's own push.
 
 - name: Check images in registry
   ansible.builtin.uri:
     url: "https://{{ item.1 }}/v2/{{ item.0 }}/manifests/{{ images[item.0].tag }}"
     headers:
-      Accept: >-
-        application/vnd.oci.image.index.v1+json,
-        application/vnd.docker.distribution.manifest.list.v2+json,
-        application/vnd.oci.image.manifest.v1+json,
-        application/vnd.docker.distribution.manifest.v2+json
+      Accept: "{{ registry_manifest_types }}"
     ca_path: "/etc/docker/certs.d/{{ registry_addr }}/ca.crt"
     url_username: "{{ registry_user }}"
     url_password: "{{ registry_password }}"
     force_basic_auth: true
+    return_content: true
     status_code: [200, 404]
   loop: "{{ registry_mirror_images | product(registry_manager_addrs) | list }}"
   loop_control:
     label: "{{ item.0 }} on {{ item.1 }}"
   delegate_to: "{{ swarm_leader }}"
+  run_once: true
   register: registry_mirror_check
 
-- name: Push missing images to registry
-  ansible.builtin.shell:
-    cmd: |
-      set -e
-      {% if offline %}
-      docker load -q -i {{ bundle_dir }}/images/{{ image_name }}.tar.gz
-      docker tag {{ image.repo }}:{{ image.tag }} {{ dst }}
-      docker push -q {{ dst }}
-      {% else %}
-      {% if src_mirror %}
-      # Docker Hub allows few downloads without a login; Google's copy of it (same digest) has no limit.
-      docker buildx imagetools create --platform linux/amd64 --tag {{ dst }} {{ src_mirror }} 2>/dev/null ||
-      {% endif %}
-      docker buildx imagetools create --platform linux/amd64 --tag {{ dst }} {{ src }}
-      {% endif %}
-    executable: /bin/bash
-  vars:
-    # Each item is one result of the check above: item.item is [image name, registry address].
-    image_name: "{{ item.item.0 }}"
-    registry_target: "{{ item.item.1 }}"
-    image: "{{ images[image_name] }}"
-    dst: "{{ registry_target }}/{{ image_name }}:{{ image.tag }}"
-    # The first manager's registry gets it from the internet, the other managers from there (faster,
-    # and Docker Hub counts fewer downloads). Images come first manager first, see the loop above.
-    src: >-
-      {{ image.repo ~ '@' ~ image.digest if registry_target == registry_manager_addrs[0]
-      else registry_manager_addrs[0] ~ '/' ~ image_name ~ ':' ~ image.tag }}
-    src_mirror: >-
-      {{ image.repo | regex_replace('^docker\\.io/', 'mirror.gcr.io/') ~ '@' ~ image.digest
-      if src.startswith('docker.io/') else '' }}
+# Each registry_mirror_found item: name, registry, digest (its amd64 build, '' if it is not there),
+# pin (the digest in state/images.yml, '' if none for this tag), changed (yes: digest is not pin).
+- name: Start the list of images
+  ansible.builtin.set_fact:
+    registry_mirror_found: []
+  run_once: true
+
+- name: Compare the images with state/images.yml
+  ansible.builtin.set_fact:
+    registry_mirror_found: "{{ registry_mirror_found | default([]) + [registry_mirror_item] }}"
   loop: "{{ registry_mirror_check.results }}"
   loop_control:
     label: "{{ item.item.0 }} on {{ item.item.1 }}"
-  when: item.status == 404
-  delegate_to: "{{ swarm_leader }}"
-  changed_when: true
-  # Downloads sometimes fail for a moment (DNS, network). Try again before giving up.
-  register: registry_push
-  retries: 3
-  delay: 15
-  until: registry_push is not failed
+  vars:
+    registry_mirror_body: "{{ item.content | default('{}') | from_json if item.status == 200 else {} }}"
+    registry_mirror_pin: "{{ image_digests[item.item.0] | default('') | string }}"
+    registry_mirror_pin_digest: >-
+      {{ registry_mirror_pin.split('@')[1] if registry_mirror_pin.startswith(images[item.item.0].tag ~ '@') else '' }}
+    # An image index lists one build per CPU type: take the amd64 one. A single build is itself.
+    registry_mirror_digest: >-
+      {{ '' if item.status != 200
+      else registry_mirror_body.manifests | selectattr('platform', 'defined') | selectattr('platform.architecture', 'equalto', 'amd64')
+      | map(attribute='digest') | first | default('') if registry_mirror_body.manifests is defined
+      else item.docker_content_digest | default('') }}
+    registry_mirror_item:
+      name: "{{ item.item.0 }}"
+      registry: "{{ item.item.1 }}"
+      digest: "{{ registry_mirror_digest }}"
+      pin: "{{ registry_mirror_pin_digest }}"
+      changed: "{{ 'yes' if registry_mirror_digest != '' and registry_mirror_pin_digest not in ['', registry_mirror_digest] else 'no' }}"
+  run_once: true
+
+- name: Stop if a registry has another image than the installer pushed
+  ansible.builtin.assert:
+    that: registry_mirror_changed | length == 0
+    fail_msg: >-
+      The registry has another image than the one the installer pushed, under the same name and tag:
+      {% for i in registry_mirror_changed %}{{ i.name }}:{{ images[i.name].tag }} on {{ i.registry }} is {{ i.digest }},
+      the installer pushed {{ i.pin }} (state/images.yml); {% endfor %}
+      Someone with the registry password (state/secrets/registry) pushed it: check who, and which
+      servers may run it. The apps still run the image the installer pushed. To push the right images
+      again (from the internet or the offline bundle), run ./install.sh -e registry_repush=true.
+  vars:
+    registry_mirror_changed: "{{ registry_mirror_found | selectattr('changed', 'equalto', 'yes') | list }}"
+  run_once: true
+  when: not registry_repush | bool
+
+# Pushed: not there, no digest in state/images.yml yet, or registry_repush.
+- name: Find the images to push
+  ansible.builtin.set_fact:
+    registry_mirror_push: >-
+      {{ registry_mirror_found | selectattr('digest', 'equalto', '') | list
+      + (registry_mirror_found | selectattr('digest', 'ne', '') | selectattr('pin', 'equalto', '') | list)
+      + (registry_mirror_found | selectattr('digest', 'ne', '') | selectattr('pin', 'ne', '') | list
+         if registry_repush | bool else []) }}
+  run_once: true
+
+- name: Push images
+  when: registry_mirror_push | length > 0
+  run_once: true
+  block:
+    - name: Make the registry writable
+      ansible.builtin.include_tasks: mode.yml
+      vars:
+        registry_mode: open
+
+    # Images come first manager first (the order of registry_mirror_check): the other managers
+    # copy from it. In the same order as found, so each image reaches the first manager first.
+    - name: Push images to registry
+      ansible.builtin.shell:
+        cmd: |
+          set -e
+          {% if offline %}
+          docker load -q -i {{ bundle_dir }}/images/{{ image_name }}.tar.gz
+          docker tag {{ image.repo }}:{{ image.tag }} {{ dst }}
+          docker push -q {{ dst }}
+          {% else %}
+          {% if src_mirror %}
+          # Docker Hub allows few downloads without a login; Google's copy of it (same digest) has no limit.
+          docker buildx imagetools create --platform linux/amd64 --tag {{ dst }} {{ src_mirror }} 2>/dev/null ||
+          {% endif %}
+          docker buildx imagetools create --platform linux/amd64 --tag {{ dst }} {{ src }}
+          {% endif %}
+        executable: /bin/bash
+      vars:
+        image_name: "{{ item.name }}"
+        image: "{{ images[image_name] }}"
+        dst: "{{ item.registry }}/{{ image_name }}:{{ image.tag }}"
+        # The first manager's registry gets it from the internet, the other managers from there (faster,
+        # and Docker Hub counts fewer downloads).
+        src: >-
+          {{ image.repo ~ '@' ~ image.digest if item.registry == registry_manager_addrs[0]
+          else registry_manager_addrs[0] ~ '/' ~ image_name ~ ':' ~ image.tag }}
+        src_mirror: >-
+          {{ image.repo | regex_replace('^docker\\.io/', 'mirror.gcr.io/') ~ '@' ~ image.digest
+          if src.startswith('docker.io/') else '' }}
+      loop: "{{ registry_mirror_found | select('in', registry_mirror_push) | list }}"
+      loop_control:
+        label: "{{ item.name }} on {{ item.registry }}"
+      delegate_to: "{{ swarm_leader }}"
+      changed_when: true
+      # Downloads sometimes fail for a moment (DNS, network). Try again before giving up.
+      register: registry_push
+      retries: 3
+      delay: 15
+      until: registry_push is not failed
+
+    - name: Read the digests of the pushed images
+      ansible.builtin.uri:
+        url: "https://{{ item.registry }}/v2/{{ item.name }}/manifests/{{ images[item.name].tag }}"
+        headers:
+          Accept: "{{ registry_manifest_types }}"
+        ca_path: "/etc/docker/certs.d/{{ registry_addr }}/ca.crt"
+        url_username: "{{ registry_user }}"
+        url_password: "{{ registry_password }}"
+        force_basic_auth: true
+        return_content: true
+      loop: "{{ registry_mirror_found | select('in', registry_mirror_push) | list }}"
+      loop_control:
+        label: "{{ item.name }} on {{ item.registry }}"
+      delegate_to: "{{ swarm_leader }}"
+      register: registry_pushed
+
+    - name: Say what state/images.yml is
+      ansible.builtin.lineinfile:
+        path: "{{ playbook_dir }}/state/images.yml"
+        line: "# The image each app runs, by the digest of its amd64 build in the cluster's registry. Made by ansibro."
+        insertbefore: BOF
+        create: true
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+
+    - name: Keep the digests in state/images.yml
+      ansible.builtin.lineinfile:
+        path: "{{ playbook_dir }}/state/images.yml"
+        regexp: "^{{ item.item.name }}:"
+        line: "{{ item.item.name }}: \"{{ images[item.item.name].tag }}@{{ registry_pushed_digest }}\""
+        create: true
+        mode: "0600"
+      vars:
+        registry_pushed_body: "{{ item.content | from_json }}"
+        registry_pushed_digest: >-
+          {{ registry_pushed_body.manifests | selectattr('platform', 'defined') | selectattr('platform.architecture', 'equalto', 'amd64')
+          | map(attribute='digest') | first | default('') if registry_pushed_body.manifests is defined
+          else item.docker_content_digest | default('') }}
+      loop: "{{ registry_pushed.results | selectattr('item.registry', 'equalto', registry_manager_addrs[0]) | list }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      delegate_to: localhost
+      become: false
+
+    # The other managers' registries got a copy from the first manager: the same amd64 build.
+    - name: Check the other managers have the same images
+      ansible.builtin.assert:
+        that: registry_pushed_digest != '' and image_digests[item.item.name] == images[item.item.name].tag ~ '@' ~ registry_pushed_digest
+        fail_msg: >-
+          {{ item.item.name }} on {{ item.item.registry }} is {{ registry_pushed_digest }}, not the image
+          on the first manager ({{ image_digests[item.item.name] | default('none') }}).
+      vars:
+        registry_pushed_body: "{{ item.content | from_json }}"
+        registry_pushed_digest: >-
+          {{ registry_pushed_body.manifests | selectattr('platform', 'defined') | selectattr('platform.architecture', 'equalto', 'amd64')
+          | map(attribute='digest') | first | default('') if registry_pushed_body.manifests is defined
+          else item.docker_content_digest | default('') }}
+      loop: "{{ registry_pushed.results | rejectattr('item.registry', 'equalto', registry_manager_addrs[0]) | list }}"
+      loop_control:
+        label: "{{ item.item.name }} on {{ item.item.registry }}"

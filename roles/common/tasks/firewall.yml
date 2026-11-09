@@ -15,6 +15,9 @@
       cluster nodes: {{ common_cluster_ips | join(', ') }}
       cluster tcp: {{ common_cluster_tcp_ports | join(', ') }}
       cluster udp: {{ common_cluster_udp_ports | join(', ') }}
+      etcd peers from: {{ common_etcd_peer_ips | join(', ') }}
+      etcd clients from: {{ common_etcd_client_ips | join(', ') }}
+      etcd closed to containers: {{ common_etcd }}
       k3s pods on: {{ common_k3s_interfaces | join(', ') }}
       wireguard from: {{ common_wireguard_hosts | join(', ') }}
       ssh replies from: {{ common_cluster_hosts | join(', ') }}
@@ -66,6 +69,24 @@
     proto: tcp
   loop: "{{ common_cluster_ips | product(common_cluster_tcp_ports | batch(15) | list) | list }}"
 
+# etcd for Patroni (managers only): the peer port for the other managers, the client port for the
+# PostgreSQL servers. (A container on another server comes from its server's IP: see DOCKER-USER below.)
+- name: Allow etcd's peer port from the other managers
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ item }}"
+    port: "12380"
+    proto: tcp
+  loop: "{{ common_etcd_peer_ips }}"
+
+- name: Allow etcd's client port from the PostgreSQL servers
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ item }}"
+    port: "12379"
+    proto: tcp
+  loop: "{{ common_etcd_client_ips }}"
+
 - name: Allow swarm UDP ports from other cluster nodes
   community.general.ufw:
     rule: allow
@@ -74,6 +95,19 @@
     proto: udp
   loop: "{{ common_cluster_ips }}"
   when: common_cluster_udp_ports | length > 0
+
+# No container (or k3s pod) on this server may reach etcd: anyone who can write Patroni's keys can
+# pick the primary or change PostgreSQL's settings. The firewall takes the first rule that matches,
+# so this comes before the rules that let containers and pods in.
+- name: Keep containers away from etcd
+  community.general.ufw:
+    rule: deny
+    direction: in
+    interface: "{{ item }}"
+    to_port: "{{ common_etcd_ports | join(':') }}"
+    proto: tcp
+  loop: "{{ common_k3s_interfaces + common_docker_interfaces }}"
+  when: common_etcd
 
 # k3s: pods on this server (cni0) and pods of other servers (flannel.1, the pod network) may use
 # this server's ports, for example DNS or a server app. Only from the pod range, only on those interfaces.
@@ -119,22 +153,38 @@
 # Ports that Docker publishes skip the rules above (Docker sends them on before ufw sees them).
 # Traefik's metrics port 8082 is one: only the other cluster servers may use it.
 # (On k3s a NetworkPolicy in roles/traefik does this limit instead.)
-# Docker checks the DOCKER-USER chain first, so the limit goes there.
-- name: Limit Traefik's metrics port to the cluster servers
+# A container that calls another server goes out with this server's IP, so the other server cannot
+# tell it from the server itself. etcd's ports are dropped here, before the container's call leaves.
+# Docker checks the DOCKER-USER chain first, so these limits go there.
+- name: Remove the old Docker port limit (now in the block below)
   ansible.builtin.blockinfile:
     path: /etc/ufw/after.rules
     marker: "# {mark} ANSIBRO TRAEFIK METRICS"
+    state: absent
+  register: common_docker_user_old
+
+- name: Limit what containers reach through Docker
+  ansible.builtin.blockinfile:
+    path: /etc/ufw/after.rules
+    marker: "# {mark} ANSIBRO DOCKER-USER"
     block: |
       *filter
       :DOCKER-USER - [0:0]
+      {% if common_traefik_metrics_limit %}
       {% for ip in common_cluster_ips %}
       -A DOCKER-USER -p tcp -m conntrack --ctorigdstport 8082 --ctdir ORIGINAL -s {{ ip }} -j RETURN
       {% endfor %}
       -A DOCKER-USER -p tcp -m conntrack --ctorigdstport 8082 --ctdir ORIGINAL -j DROP
+      {% endif %}
+      {% if postgres_patroni %}
+      -A DOCKER-USER -p tcp -m multiport --dports {{ common_etcd_ports | join(',') }} -j DROP
+      {% endif %}
       -A DOCKER-USER -j RETURN
       COMMIT
-    state: "{{ 'present' if orchestrator == 'swarm' and 8082 in common_cluster_tcp_ports else 'absent' }}"
+    state: "{{ 'present' if common_traefik_metrics_limit or postgres_patroni else 'absent' }}"
   register: common_docker_user
+  vars:
+    common_traefik_metrics_limit: "{{ orchestrator == 'swarm' and 8082 in common_cluster_tcp_ports }}"
 
 - name: Enable firewall
   community.general.ufw:
@@ -144,5 +194,5 @@
 
 - name: Load the changed Docker port limit
   ansible.builtin.command: ufw reload
-  when: common_docker_user.changed  # noqa: no-handler
+  when: common_docker_user.changed or common_docker_user_old.changed  # noqa: no-handler
   changed_when: true

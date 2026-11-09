@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Keep state/ (passwords, keys, summary) encrypted on disk, as state.age.
 #
-# Turn it on once, on the machine that runs the installer:
-#   mkdir -p ~/.config/ansibro && age-keygen -o ~/.config/ansibro/age.key
+# On by default: the first ./install.sh makes the key ~/.config/ansibro/age.key (scripts/state.sh init).
 # Keep a copy of that key somewhere safe (a password manager): without it state.age cannot be opened.
+# To keep state/ unencrypted instead: ANSIBRO_PLAIN_STATE=1 ./install.sh (before the key exists).
 #
 # install.sh opens state.age before it runs and closes it again at the end. By hand:
 #   scripts/state.sh open     state.age -> state/ (to read a password)
@@ -15,6 +15,44 @@ cd "$(dirname "$0")/.."
 # HOME is not set when this runs from a service or cron; ~ then comes from the user list.
 home="${HOME:-$(cd ~ && pwd)}"
 key="${ANSIBRO_KEY:-$home/.config/ansibro/age.key}"
+
+# Homebrew's age, also when this shell's PATH lacks Homebrew.
+for dir in /opt/homebrew/bin /usr/local/bin; do
+  case ":$PATH:" in
+    *":$dir:"*) ;;
+    *) if [ -x "$dir/age" ]; then PATH="$PATH:$dir"; fi ;;
+  esac
+done
+
+# init: make the key, so state/ is kept encrypted from now on. Nothing to do when there is a key or
+# state.age already, or with ANSIBRO_PLAIN_STATE=1. Without age it only warns: the install goes on.
+if [ "${1:-}" = init ]; then
+  if [ -n "${ANSIBRO_PLAIN_STATE:-}" ] || [ -f "$key" ] || [ -f state.age ]; then
+    exit 0
+  fi
+  if ! command -v age-keygen >/dev/null && [ "$(uname -s)" = Darwin ]; then
+    for brew in "$(command -v brew || true)" /opt/homebrew/bin/brew /usr/local/bin/brew; do
+      if [ -n "$brew" ] && [ -x "$brew" ]; then
+        echo "Installing age, to keep state/ encrypted: brew install age"
+        "$brew" install age >/dev/null || true
+        PATH="$PATH:$(dirname "$brew")"
+        break
+      fi
+    done
+  fi
+  if ! command -v age-keygen >/dev/null; then
+    echo "WARNING: state/ (every password) stays readable on this computer, because age is not installed." >&2
+    echo "  Install it (sudo apt install age, or brew install age) and run ./install.sh again: it then keeps" >&2
+    echo "  state/ encrypted. (To keep it unencrypted and stop this warning: ANSIBRO_PLAIN_STATE=1.)" >&2
+    exit 0
+  fi
+  mkdir -p "$(dirname "$key")"
+  (umask 077 && age-keygen -o "$key" 2>/dev/null)
+  echo "==> state/ is kept encrypted from now on (state.age), with the key $key."
+  echo "    Save a copy of this key in a password manager now: without it state.age (every password) cannot be opened."
+  echo "    To read a password: scripts/state.sh open, and scripts/state.sh close when you are done."
+  exit 0
+fi
 
 # Nothing to do when encryption is off (no key and no state.age).
 if [ ! -f "$key" ] && [ ! -f state.age ]; then
@@ -47,7 +85,7 @@ case "${1:-}" in
     rm -rf state
     ;;
   *)
-    echo "usage: scripts/state.sh open|close" >&2
+    echo "usage: scripts/state.sh init|open|close" >&2
     exit 1
     ;;
 esac

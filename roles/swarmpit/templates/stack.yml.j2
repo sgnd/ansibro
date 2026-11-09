@@ -1,6 +1,6 @@
 services:
   app:
-    image: {{ registry_addr }}/swarmpit:{{ images.swarmpit.tag }}
+    image: {{ image_ref.swarmpit }}
     environment:
       SWARMPIT_DB: http://db:5984
       SWARMPIT_INFLUXDB: http://influxdb:8086
@@ -32,7 +32,7 @@ services:
 {% endif %}
 
   db:
-    image: {{ registry_addr }}/couchdb:{{ images.couchdb.tag }}
+    image: {{ image_ref.couchdb }}
     volumes:
       - {{ swarmpit_dir }}/couchdb:/opt/couchdb/data
     networks:
@@ -43,7 +43,7 @@ services:
           - node.hostname == {{ swarm_leader }}
 
   influxdb:
-    image: {{ registry_addr }}/influxdb:{{ images.influxdb.tag }}
+    image: {{ image_ref.influxdb }}
     volumes:
       - {{ swarmpit_dir }}/influxdb:/var/lib/influxdb
     networks:
@@ -54,7 +54,7 @@ services:
           - node.hostname == {{ swarm_leader }}
 
   agent:
-    image: {{ registry_addr }}/swarmpit-agent:{{ images['swarmpit-agent'].tag }}
+    image: {{ image_ref['swarmpit-agent'] }}
     environment:
       DOCKER_API_VERSION: "1.44"  # Docker 29 needs at least this API version
     volumes:

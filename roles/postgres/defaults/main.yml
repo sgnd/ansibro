@@ -6,6 +6,8 @@ postgres_patroni_api_password: "{{ lookup('ansible.builtin.password', secrets_di
 postgres_replication_password: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/postgres_replication', chars=['ascii_letters', 'digits'], length=24) }}"
 
 # Patroni keeps its shared state (who is the primary) in etcd, which runs on the managers.
+# It logs in to etcd as user patroni (the same file as in roles/etcd).
+postgres_etcd_password: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/etcd_patroni', chars=['ascii_letters', 'digits'], length=32) }}"
 postgres_etcd_hosts: "{{ groups['managers'] | map('extract', hostvars, 'node_ip') | map('regex_replace', '$', ':12379') | join(',') }}"
 # Where a restore finds the database dump (put back from the backup by roles/backup).
 postgres_dump: "{{ apps_dir }}/backup/stage/dumps/postgres.sql"

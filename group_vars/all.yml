@@ -9,6 +9,18 @@ registry_ip: "{{ node_ip if inventory_hostname in groups['managers'] else hostva
 registry_user: ansibro
 registry_password: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/registry', chars=['ascii_letters', 'digits'], length=32) }}"
 
+# Apps run each image by its digest (the fingerprint of its amd64 build), not only by its tag: an image
+# pushed later under the same tag is never run. The installer reads the digest right after it pushed
+# the image itself, and keeps it in state/images.yml (roles/registry/tasks/mirror.yml).
+# image_ref.<name> is "registry.ansibro:5000/<name>:<tag>@sha256:...", for every image in versions.yml.
+image_digests: "{{ (lookup('ansible.builtin.file', playbook_dir ~ '/state/images.yml', errors='ignore') or '{}') | from_yaml or {} }}"
+image_ref: "{{ image_ref_lines | from_yaml }}"
+image_ref_lines: |-
+  {% for name, image in images.items() %}
+  {% set pin = image_digests[name] | default('') | string %}
+  {{ name }}: "{{ registry_addr }}/{{ name }}:{{ pin if pin.startswith(image.tag ~ '@sha256:') else image.tag }}"
+  {% endfor %}
+
 # Traefik runs on every manager, so the apps stay reachable when one manager is down. Point DNS
 # to all of them. Let's Encrypt (and acme_server) checks a domain by calling it, and the call can
 # reach another manager, so with them Traefik runs only on the first manager.
@@ -87,6 +99,10 @@ remove_nodes: false
 
 # ./install.sh -e restore=true puts the newest backup back on new servers (see roles/backup).
 restore: false
+# Backups made before ansibro 1.4 are in one repository for all servers (backup.repository itself,
+# password state/secrets/restic). Nothing changes them any more. Add -e restore_legacy=true to
+# restore=true to put the newest of them back (with the same checks as a new backup).
+restore_legacy: false
 
 # The monitoring app with alerts to Telegram, email or a webhook (victoria), and its server. Empty if not installed.
 # (beszel, the light choice, has its own agents and alert settings.)

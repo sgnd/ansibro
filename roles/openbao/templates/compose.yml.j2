@@ -1,6 +1,6 @@
 services:
   openbao:
-    image: {{ registry_addr }}/openbao:{{ images.openbao.tag }}
+    image: {{ image_ref.openbao }}
     container_name: openbao
     restart: always
     command: server
