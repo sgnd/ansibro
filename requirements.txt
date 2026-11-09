@@ -2,9 +2,9 @@
 # Each version has the sha256 of every file PyPI has for it: pip refuses a download that does not
 # match (install.sh uses --require-hashes). Dependabot changes a version and its hashes together.
 # Changed a version by hand? Run scripts/hash-requirements.sh to write its hashes.
-ansible-core==2.21.5 \
-    --hash=sha256:08886f9f3e23d129aa98a01271c4a47833516e1cb7c737a246788cb474f41222 \
-    --hash=sha256:65bb3148c58ebb843cd5074004c805f404f152114d98476dd823324616c9c6cb
+ansible-core==2.22.0 \
+    --hash=sha256:8285d4cc81c3e3eb2d954e75531724fe0ae154d228475638123451f034a74657 \
+    --hash=sha256:bf50b4a0cfa985e30585c7ba301897ea7050d224ca49d2816cab10e33a160e1c
 # bcrypt hashes the registry and Alertmanager passwords.
 bcrypt==5.0.0 \
     --hash=sha256:046ad6db88edb3c5ece4369af997938fb1c19d6a699b9c1b27b0db432faae4c4 \
