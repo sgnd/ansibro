@@ -24,3 +24,6 @@ Add `authelia@file` to the app's Traefik middlewares:
 for a swarm app in `roles/<app>/templates/stack.yml.j2` (the `...middlewares` label, comma-separated),
 for a server app with a web page set `traefik_route_middleware: authelia@file` in `roles/<app>/tasks/main.yml`.
 A server app has one middleware, so this replaces its `admin_allow_from` limit (on Swarm and k3s).
+For an admin page that has its own login, `traefik_route_middleware: sso` keeps `admin_allow_from` and
+adds the Authelia or Keycloak login when one is installed (the servers skip it; see
+[`roles/traefik/tasks/route.yml`](../roles/traefik/tasks/route.yml)).

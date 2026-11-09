@@ -11,8 +11,16 @@ services:
       - -retentionPeriod={{ observability_keep_days }}d
       - -httpListenAddr={{ node_ip }}:{{ observability_metrics_port }}
       - -promscrape.config=/etc/victoria/scrape.yml
+      # Pages that delete or change data need the admin key (state/secrets/victoria_admin_key).
+      - -deleteAuthKey=file:///etc/victoria/admin-key
+      - -snapshotAuthKey=file:///etc/victoria/admin-key
+      - -forceMergeAuthKey=file:///etc/victoria/admin-key
+      - -reloadAuthKey=file:///etc/victoria/admin-key
+      - -search.resetCacheAuthKey=file:///etc/victoria/admin-key
     volumes:
       - ./config/scrape.yml:/etc/victoria/scrape.yml:ro
+      - ./config/admin-key:/etc/victoria/admin-key:ro
+      - ./config/alertmanager-password:/etc/victoria/alertmanager-password:ro  # to read Alertmanager's metrics
       - ./data/metrics:/storage
 
   # Keeps the logs that the agents send.
@@ -25,7 +33,12 @@ services:
       - -storageDataPath=/storage
       - -retentionPeriod={{ observability_keep_days }}d
       - -httpListenAddr={{ node_ip }}:{{ observability_logs_port }}
+      # Pages that delete or move logs need the admin key (deleting is also off: no -delete.enable).
+      - -deleteAuthKey=file:///etc/victoria/admin-key
+      - -partitionManageAuthKey=file:///etc/victoria/admin-key
+      - -forceMergeAuthKey=file:///etc/victoria/admin-key
     volumes:
+      - ./config/admin-key:/etc/victoria/admin-key:ro
       - ./data/logs:/storage
 
   # Checks the alert rules against the metrics, and sends alerts to Alertmanager.
@@ -41,11 +54,14 @@ services:
       - -remoteWrite.url=http://{{ node_ip }}:{{ observability_metrics_port }}
       - -remoteRead.url=http://{{ node_ip }}:{{ observability_metrics_port }}
       - -notifier.url=http://{{ node_ip }}:{{ observability_alertmanager_port }}
+      - -notifier.basicAuth.username={{ alertmanager_user }}
+      - -notifier.basicAuth.passwordFile=/etc/vmalert/alertmanager-password
       - -evaluationInterval=30s
       - -httpListenAddr={{ node_ip }}:{{ observability_vmalert_port }}
       - -external.url=https://grafana.{{ domain }}
     volumes:
       - ./config/alerts.yml:/etc/vmalert/alerts.yml:ro
+      - ./config/alertmanager-password:/etc/vmalert/alertmanager-password:ro
 
   # Sends the alerts to Telegram, email or a webhook, and the heartbeat to Uptime Kuma.
   alertmanager:
@@ -58,9 +74,11 @@ services:
       - --storage.path=/alertmanager
       - --web.listen-address={{ node_ip }}:{{ observability_alertmanager_port }}
       - --web.external-url=https://alertmanager.{{ domain }}
+      - --web.config.file=/etc/alertmanager/web.yml  # the login: its API can mute every alert
       - --cluster.listen-address=  # one Alertmanager, no cluster
     volumes:
       - ./config/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./config/alertmanager-web.yml:/etc/alertmanager/web.yml:ro
       - ./alertmanager:/alertmanager
 
   # Dashboards and log search.

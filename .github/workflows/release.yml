@@ -40,7 +40,7 @@ jobs:
           ANSIBRO_CONFIG: config.example.yml
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install --require-hashes -r requirements.txt
           .venv/bin/ansible-galaxy collection install -r requirements.yml
           .venv/bin/python tests/test_config.py
           .venv/bin/python tests/test_handover.py
@@ -83,7 +83,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
-      contents: write  # to upload the bundles to the release (only the last step gets the token)
+      contents: write  # to upload the bundles to the release (only the attest and upload steps use the token)
+      id-token: write  # to sign the build provenance (attestation) of each bundle
+      attestations: write  # to save that attestation in this repository
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -100,6 +102,13 @@ jobs:
           split -b 1900m -d "$file" "$file.part"
           rm "$file"
           ls -lh
+      # A signed statement that this workflow built the bundle from this tag. Check it with
+      # gh attestation verify (see docs/offline.md). It uses the sha256 above, the bundle is in parts now.
+      - name: Attest where the bundle comes from
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: dist/ansibro-${{ matrix.ubuntu }}.tar.gz.sha256
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/')
         env:

@@ -33,7 +33,15 @@ services:
       labels:
         traefik.enable: "true"
         traefik.http.routers.portainer.rule: Host(`{{ portainer_host }}`)
-        traefik.http.routers.portainer.middlewares: admin-ip@file
+        # Portainer has its own login; with Authelia or Keycloak, admin@file asks for that login first.
+        traefik.http.routers.portainer.middlewares: {{ 'admin@file' if admin_sso else 'admin-ip@file' }}
+{% if admin_sso %}
+        # The servers and portainer_open_paths skip the Authelia or Keycloak login (not admin_allow_from).
+        # The longer rule wins. The agents talk to Portainer on the agent network, not through Traefik.
+        traefik.http.routers.portainer-open.rule: Host(`{{ portainer_host }}`) && ({{ admin_servers_rule }}{% for path in portainer_open_paths %} || PathPrefix(`{{ path }}`){% endfor %})
+        traefik.http.routers.portainer-open.middlewares: admin-ip@file
+        traefik.http.routers.portainer-open.service: portainer
+{% endif %}
         traefik.http.services.portainer.loadbalancer.server.port: "9000"
 
 networks:

@@ -49,3 +49,8 @@ observability_server_images:
 observability_grafana_password: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/grafana_admin', chars=['ascii_letters', 'digits'], length=24) }}"
 # The exporters log in to the databases as user "monitor", which can only read stats.
 observability_monitor_password: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/monitor', chars=['ascii_letters', 'digits'], length=24) }}"
+# VictoriaMetrics and VictoriaLogs ask for this key on their pages that delete or move data (delete
+# series, snapshots, partitions, force merge, ...). Nothing in ansibro uses those pages: without the
+# key, a container in the cluster can no longer delete metrics or hide logs. (The Alertmanager login
+# is alertmanager_password in group_vars.)
+observability_admin_key: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/victoria_admin_key', chars=['ascii_letters', 'digits'], length=32) }}"

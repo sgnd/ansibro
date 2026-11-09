@@ -122,6 +122,8 @@
   changed_when: true
   no_log: true
 
+# Its own login (a token), and the admin login when Authelia or Keycloak is installed. Programs use
+# http://<ip>:8200. The health check stays open for Uptime Kuma.
 - name: Add OpenBao to Traefik
   ansible.builtin.include_role:
     name: traefik
@@ -129,3 +131,5 @@
   vars:
     traefik_route_name: openbao
     traefik_route_port: 8200
+    traefik_route_middleware: sso
+    traefik_route_open_paths: [/v1/sys/health]

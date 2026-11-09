@@ -47,6 +47,11 @@ def fail(msg):
     sys.exit(f"config error: {msg}")
 
 
+def warn(msg):
+    """Something to fix soon, but the install can go on (stderr: install.sh shows it)."""
+    print(f"warning: {msg}", file=sys.stderr)
+
+
 def load_yaml(path):
     with open(path) as f:
         try:
@@ -415,7 +420,9 @@ def build(cfg, base_dir):
 
 
 def check_ready(cfg, base_dir):
-    """Values a first install often forgets to change. install.sh checks these before a real run."""
+    """Values a first install often forgets to change. install.sh checks these before a real run.
+    A wrong value stops the install; a risky one (admin pages open to everyone) is a warning, because
+    clusters that already run with it must still be able to upgrade."""
     domain = str(cfg.get("domain", ""))
     if domain == "example.com" or domain.endswith(".example.com"):
         fail(f"domain is still {cfg['domain']}. Write your own domain.")
@@ -425,6 +432,10 @@ def check_ready(cfg, base_dir):
     key = os.path.normpath(os.path.join(base_dir, os.path.expanduser((cfg.get("ssh") or {}).get("key", "~/.ssh/id_ed25519"))))
     if not os.path.exists(key):
         fail(f"ssh.key: {key} not found. Use the private SSH key that logs in to your servers.")
+    if "traefik" in (cfg.get("apps") or {}) and not cfg.get("admin_allow_from"):
+        warn("admin_allow_from is empty, so the admin web pages (Traefik, Portainer, Grafana, ...) are open to "
+             "the whole internet, protected only by their logins. Set admin_allow_from in config.yml to the IPs "
+             "you work from (office, VPN), then run ./install.sh again.")
 
 
 def main():

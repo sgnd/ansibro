@@ -1,5 +1,12 @@
 # k3s settings for {{ inventory_hostname }}. Made by ansibro, do not change it here.
+{% if k3s_server %}
+# Servers: the server token, and the agent token that the workers join with.
 token: "{{ k3s_token }}"
+agent-token: "{{ k3s_agent_token }}"
+{% else %}
+# Workers: only the agent token (it cannot read the cluster's keys; the server token can).
+token: "{{ k3s_agent_token }}"
+{% endif %}
 node-name: {{ inventory_hostname }}
 node-ip: {{ node_ip }}
 # NodePorts (30000-32767) skip the firewall, so they answer only on node_ip, not on a public address.

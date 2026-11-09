@@ -19,7 +19,15 @@ services:
       labels:
         traefik.enable: "true"
         traefik.http.routers.swarmpit.rule: Host(`{{ swarmpit_host }}`)
-        traefik.http.routers.swarmpit.middlewares: admin-ip@file  # Swarmpit has its own login
+        # Swarmpit has its own login; with Authelia or Keycloak, admin@file asks for that login first.
+        traefik.http.routers.swarmpit.middlewares: {{ 'admin@file' if admin_sso else 'admin-ip@file' }}
+{% if admin_sso %}
+        # The servers (Uptime Kuma checks from there) skip the Authelia or Keycloak login, not
+        # admin_allow_from. The longer rule wins.
+        traefik.http.routers.swarmpit-open.rule: Host(`{{ swarmpit_host }}`) && ({{ admin_servers_rule }})
+        traefik.http.routers.swarmpit-open.middlewares: admin-ip@file
+        traefik.http.routers.swarmpit-open.service: swarmpit
+{% endif %}
         traefik.http.services.swarmpit.loadbalancer.server.port: "8080"
 {% endif %}
 

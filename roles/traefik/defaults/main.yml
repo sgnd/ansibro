@@ -2,14 +2,13 @@ traefik_dir: "{{ apps_dir }}/traefik"
 traefik_host: "traefik.{{ domain }}"
 traefik_log_level: INFO
 
-# Who passes the admin-ip middleware: admin_allow_from, plus the servers themselves (Uptime Kuma checks
-# the pages from there, and the installer sets up Keycloak through Traefik). Empty = everyone.
-# On k3s the pods, and a request from the server Traefik runs on to itself, come from the pod range
-# (10.42.0.0/16): that counts as "the servers" too. Visitors keep their own IP (Traefik uses host ports).
+# Who passes the admin-ip middleware: admin_allow_from, plus the servers themselves (admin_servers in
+# group_vars: Uptime Kuma checks the pages from there, and the installer sets up Keycloak through Traefik).
+# Empty = everyone. On k3s the pods, and a request from the server Traefik runs on to itself, come from
+# the pod range (10.42.0.0/16): that counts as "the servers" too. Visitors keep their own IP (Traefik
+# uses host ports).
 traefik_admin_allow_from: >-
-  {{ ((admin_allow_from | default([])) + (groups['all'] | map('extract', hostvars, 'node_ip') | list)
-  + (['10.42.0.0/16'] if orchestrator == 'k3s' else []))
-  if admin_allow_from | default([]) else ['0.0.0.0/0', '::/0'] }}
+  {{ (admin_allow_from | default([])) + admin_servers if admin_allow_from | default([]) else ['0.0.0.0/0', '::/0'] }}
 
 # Generated once and saved in state/secrets/ on the installer machine.
 traefik_password: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/traefik_admin', chars=['ascii_letters', 'digits'], length=24) }}"

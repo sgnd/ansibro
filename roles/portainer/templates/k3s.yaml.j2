@@ -50,8 +50,17 @@ metadata: { name: portainer, namespace: ansibro }
 spec:
   entryPoints: [websecure]
   routes:
+    # Portainer has its own login; with Authelia or Keycloak, that login comes first.
     - match: Host(`{{ portainer_host }}`)
+      kind: Rule
+      middlewares: [{ name: admin-ip }{% if admin_sso %}, { name: "{{ k3s_admin_login }}" }{% endif %}]
+      services: [{ name: portainer, port: 9000 }]
+{% if admin_sso %}
+    # The servers and pods, and portainer_open_paths, skip the Authelia or Keycloak login (not
+    # admin_allow_from). The longer rule wins.
+    - match: Host(`{{ portainer_host }}`) && ({{ admin_servers_rule }}{% for path in portainer_open_paths %} || PathPrefix(`{{ path }}`){% endfor %})
       kind: Rule
       middlewares: [{ name: admin-ip }]
       services: [{ name: portainer, port: 9000 }]
+{% endif %}
   tls: {{ k3s_route_tls | to_json }}

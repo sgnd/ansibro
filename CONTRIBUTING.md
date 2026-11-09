@@ -38,6 +38,10 @@ Open an issue with the [Bug report](https://github.com/sgnd/ansibro/issues/new?t
    - a web page: to `uptimekuma_pages` in [`roles/uptimekuma/defaults/main.yml`](roles/uptimekuma/defaults/main.yml);
    - an admin page: to `authelia_admin_hosts` in [`roles/authelia/defaults/main.yml`](roles/authelia/defaults/main.yml)
      (if it uses the `admin` login), and to the page list above `admin_allow_from` in `config.example.yml`.
+     An admin page with its own login uses `traefik_route_middleware: sso` (a server app) or
+     `admin@file` when `admin_sso` is set (a swarm app, see `roles/portainer/`): the Authelia or Keycloak
+     login comes first. Keep paths that programs call (webhooks, health checks) open with
+     `traefik_route_open_paths`.
 5. Add it to the Apps table in the [README](README.md#apps), to [`THIRD_PARTY.md`](THIRD_PARTY.md), to
    [`config.example.yml`](config.example.yml), and a check to [`tests/check.py`](tests/check.py).
 6. Test on new servers: run `./install.sh` two times (the second run must report `changed=0`),
@@ -61,6 +65,9 @@ that read `SKILL.md`: set up `config.yml`, install, add an app, and update versi
    shellcheck install.sh build-bundle.sh scripts/*.sh
    scripts/validate-versions.sh               # needs yq, docker and curl
    ```
+
+   Changed a version in `requirements.txt` by hand? Run `scripts/hash-requirements.sh` first: pip only
+   installs files whose sha256 is listed there (Dependabot writes the hashes itself).
 
 3. Open the pull request. GitHub runs the same checks (see [`validate.yml`](.github/workflows/validate.yml)).
    They must pass before it can be merged.

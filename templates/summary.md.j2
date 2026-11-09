@@ -4,6 +4,14 @@ Updated: {{ now(fmt='%Y-%m-%d %H:%M') }}
 Config: {{ lookup('env', 'ANSIBRO_CONFIG') }}
 
 Keep this file private. It has passwords.
+{% if 'traefik' in apps and not admin_allow_from | default([]) %}
+
+## Warning: the admin pages are open to everyone
+
+`admin_allow_from` in config.yml is empty, so the admin web pages (Traefik, Portainer, Grafana, ...)
+are open to the whole internet, protected only by {{ 'the ' ~ admin_sso | capitalize ~ ' login (with a second factor) and ' if admin_sso else '' }}each page's own login.
+Set `admin_allow_from` to the IPs you work from (office, VPN), then run `./install.sh` again.
+{% endif %}
 
 ## DNS
 
@@ -24,13 +32,18 @@ Point `*.{{ domain }}` to the public IP of {% for n in traefik_nodes %}{{ n }} (
 {% for app, target in apps.items() %}
 | {{ app }} | {{ orchestrator if target == 'swarm' else app_nodes[app] | join(', ') }} | {{ catalog[app].info | replace('<domain>', domain) | replace('<ip>', hostvars[target].node_ip | default('')) | replace('<admin login>', admin_login) }} |
 {% endfor %}
+{% if admin_sso %}
+
+The admin pages with their own login (Portainer, Swarmpit, Grafana, OpenBao, RabbitMQ, RustFS, Uptime Kuma,
+Beszel) ask for the admin login first ({{ admin_login }}), then for their own.
+{% endif %}
 
 ## Passwords
 
 From `state/secrets/`. To change one:
 
-- traefik_admin, redis, valkey, nats, rustfs_access_key, rustfs_secret_key, monitor and the files that end in `_db`:
-  change the file, then run `./install.sh` again. The installer sets these in the apps every run.
+- traefik_admin, redis, valkey, nats, rustfs_access_key, rustfs_secret_key, monitor, alertmanager, victoria_admin_key
+  and the files that end in `_db`: change the file, then run `./install.sh` again. The installer sets these in the apps every run.
 - mariadb, keycloak_admin, beszel_admin, openbao_root_token, registry and restic: the installer logs in with these.
   Change the password in the app and in the file at the same time, then run `./install.sh` again.
 - The others: change it in the app, then write the new one in the file too.

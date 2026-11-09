@@ -4,3 +4,8 @@ portainer_host: "portainer.{{ domain }}"
 # Generated once and saved in state/secrets/ on the installer machine.
 portainer_password: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/portainer_admin', chars=['ascii_letters', 'digits'], length=24) }}"
 portainer_agent_secret: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/portainer_agent_secret', chars=['ascii_letters', 'digits'], length=32) }}"
+
+# With Authelia or Keycloak installed, Portainer's page asks for that login too (admin_sso). These paths
+# skip it, like the servers do (admin_servers_rule): the health check (Uptime Kuma) and the webhooks
+# that redeploy a service or stack (for CI). admin_allow_from and Portainer's own checks still apply.
+portainer_open_paths: [/api/system/status, /api/webhooks/, /api/stacks/webhooks/]

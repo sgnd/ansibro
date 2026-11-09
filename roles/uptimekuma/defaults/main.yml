@@ -5,7 +5,9 @@ uptimekuma_password: "{{ lookup('ansible.builtin.password', secrets_dir ~ '/upti
 
 # How to check each app. The installer adds an Uptime Kuma monitor for each installed one.
 # It calls Traefik with the page's name (host), so it works without DNS too; Traefik's admin-ip lets
-# the servers in. Only 200-299 counts as up (redirects are not followed), unless "codes" says more.
+# the servers in, and on pages with their own login they skip the Authelia or Keycloak login
+# (admin_servers_rule in group_vars). Only 200-299 counts as up (redirects are not followed), unless
+# "codes" says more.
 #   path:    a page that answers without a login, so the check reaches the app itself
 #   codes:   other answers that still mean "up"
 #   keyword: text the answer must have

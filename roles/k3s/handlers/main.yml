@@ -1,10 +1,21 @@
 # One server at a time. A k3s server (manager) must answer again before the next one restarts,
 # so the cluster keeps a working majority. (Restart and wait are one task, so throttle keeps them together.)
-- name: Restart k3s  # noqa: command-instead-of-module (restart and wait must be one task)
+# Handlers run in the order of this file: every server restarts before any worker. A worker that
+# gets a new agent token can only join once the servers know that token (k3s docs: set agent-token
+# on all servers, then the agents). Until it restarts, a running worker keeps working.
+- name: Restart k3s servers  # noqa: command-instead-of-module (restart and wait must be one task)
   ansible.builtin.shell: |
-    systemctl restart {{ k3s_service }}
-    {% if k3s_server %}
+    systemctl restart k3s
     timeout 300 sh -c 'until k3s kubectl get --raw /readyz >/dev/null 2>&1; do sleep 5; done'
-    {% endif %}
+  listen: Restart k3s
+  when: k3s_server
   changed_when: true
+  throttle: 1
+
+- name: Restart k3s workers
+  ansible.builtin.systemd_service:
+    name: k3s-agent
+    state: restarted
+  listen: Restart k3s
+  when: not k3s_server
   throttle: 1

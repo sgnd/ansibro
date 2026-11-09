@@ -53,3 +53,5 @@
   vars:
     traefik_route_name: beszel
     traefik_route_port: 8090
+    traefik_route_middleware: sso  # its own login, and the admin login when Authelia or Keycloak is installed
+    traefik_route_open_paths: [/api/health]  # for Uptime Kuma

@@ -49,3 +49,4 @@
   vars:
     traefik_route_name: rustfs
     traefik_route_port: 9001
+    traefik_route_middleware: sso  # its own login, and the admin login when Authelia or Keycloak is installed

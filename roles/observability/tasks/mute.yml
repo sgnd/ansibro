@@ -5,6 +5,9 @@
   ansible.builtin.uri:
     url: "http://{{ node_ip }}:{{ observability_alertmanager_port }}/api/v2/silences"
     method: POST
+    url_username: "{{ alertmanager_user }}"
+    url_password: "{{ alertmanager_password }}"
+    force_basic_auth: true
     body_format: json
     body: >-
       {{ {

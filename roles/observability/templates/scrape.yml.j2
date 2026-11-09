@@ -67,9 +67,17 @@ scrape_configs:
       - targets:
           - "{{ node_ip }}:{{ observability_metrics_port }}"
           - "{{ node_ip }}:{{ observability_logs_port }}"
-          - "{{ node_ip }}:{{ observability_alertmanager_port }}"
           - "{{ node_ip }}:{{ observability_grafana_port }}"
 {% if monitoring_app == 'victoria' %}
           - "{{ node_ip }}:{{ observability_vmalert_port }}"
 {% endif %}
+        labels: { node: {{ inventory_hostname }} }
+
+  # Alertmanager asks for its login.
+  - job_name: alertmanager
+    basic_auth:
+      username: {{ alertmanager_user }}
+      password_file: /etc/victoria/alertmanager-password
+    static_configs:
+      - targets: ["{{ node_ip }}:{{ observability_alertmanager_port }}"]
         labels: { node: {{ inventory_hostname }} }

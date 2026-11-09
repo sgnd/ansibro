@@ -48,15 +48,18 @@
 
 # Makes the admin user and the monitors (until all are added once), from inside the container.
 # Fails if the saved password does not work (someone else made the admin user).
+# With victoria, it also sets the Alertmanager login on the Watchdog monitor (see setup.js).
 - name: Make the Uptime Kuma admin user and monitors
   ansible.builtin.command:
     cmd: docker exec -i uptimekuma node /app/data/ansibro-setup.js
-    stdin: "{{ {'username': 'admin', 'password': uptimekuma_password} | to_json }}"
+    stdin: >-
+      {{ {'username': 'admin', 'password': uptimekuma_password,
+          'alertmanagerPassword': alertmanager_password if monitoring_app else ''} | to_json }}
   register: uptimekuma_setup
   until: uptimekuma_setup.rc == 0 or 'does not work' in uptimekuma_setup.stderr
   retries: 10
   delay: 6
-  changed_when: "'created' in uptimekuma_setup.stdout"
+  changed_when: "'created' in uptimekuma_setup.stdout or 'updated' in uptimekuma_setup.stdout"
   failed_when: false  # the next task shows the error (no_log hides it here)
   no_log: true
 
@@ -66,6 +69,8 @@
   when: uptimekuma_setup.rc != 0
 
 # Only now, with the admin user made: before, anyone who opens the page could make it.
+# Its own login, and the admin login when Authelia or Keycloak is installed. Status pages, push
+# monitors and badges are for everyone (still limited by admin_allow_from, like before).
 - name: Add Uptime Kuma to Traefik
   ansible.builtin.include_role:
     name: traefik
@@ -73,4 +78,5 @@
   vars:
     traefik_route_name: uptimekuma
     traefik_route_port: 3001
-    traefik_route_middleware: admin-ip  # Uptime Kuma has its own login
+    traefik_route_middleware: sso
+    traefik_route_open_paths: [/status/, /api/status-page/, /api/push/, /api/badge/, /upload/, /assets/, /icon.svg]

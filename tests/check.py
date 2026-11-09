@@ -243,6 +243,16 @@ def check_k3s():
         image = f"registry.ansibro:{CFG['registry_port']}/{repos[0]}:{IMAGES[repos[0]]['tag']}"
         code, out = on_leader(["sudo", "k3s", "crictl", "pull", image])
         check(f"k3s pulls {repos[0]} from the cluster's registry", code == 0, out[-200:])
+    # Servers know the agent token (a file, not the link to the server token that k3s makes without it).
+    # Workers have only the agent token: the server token would give them the cluster's keys.
+    for node in inv["managers"]["hosts"]:
+        code, _ = on_node(node, ["sudo", "test", "!", "-L", "/var/lib/rancher/k3s/server/agent-token"])
+        check(f"k3s server {node} has its own agent token", code == 0)
+    for node in inv["workers"]["hosts"]:
+        # grep reads the token from stdin, so it is not on a command line. Exit code 1: not found.
+        code, _ = on_node(node, ["sudo", "grep", "-qFf", "/dev/stdin", "/etc/rancher/k3s/config.yaml"],
+                          stdin=secret("k3s_token") + "\n")
+        check(f"k3s worker {node} does not have the server token", code == 1, f"grep exit code {code}")
 
 
 def check_backup():
@@ -519,6 +529,7 @@ def check_beszel():
 def check_monitoring(app):
     ip = ip_of(app)
     metrics = f"http://{ip}:8428"
+    alertmanager = "ansibro:" + secret("alertmanager")
     code, _ = curl(f"http://{ip}:3000/api/user", user="admin:" + secret("grafana_admin"))
     check("grafana admin login", code == "200", code)
     check("grafana page", https("grafana", path="/login")[0] == "200")
@@ -540,11 +551,20 @@ def check_monitoring(app):
     _, body = curl(f"http://{ip}:8880/api/v1/rules")
     rules = sum(len(g["rules"]) for g in json.loads(body)["data"]["groups"])
     check(f"alert rules loaded ({rules})", rules >= 30, str(rules))
-    _, body = curl(f"http://{ip}:9093/api/v2/alerts")
+    _, body = curl(f"http://{ip}:9093/api/v2/alerts", user=alertmanager)
     names = {a["labels"]["alertname"] for a in json.loads(body)}
     check("watchdog alert reaches alertmanager", "Watchdog" in names, str(names))
     real = names - {"Watchdog"}
     check("no other alerts firing", not real, ", ".join(sorted(real)))
+
+    # Without the login or the admin key, nobody can mute alerts or delete data. (If a check fails,
+    # the request did nothing harmful: the names match nothing.)
+    code, _ = curl(f"http://{ip}:9093/api/v2/silences")
+    check("alertmanager refuses requests without its login", code == "401", code)
+    code, _ = curl(metrics + "/api/v1/admin/tsdb/delete_series?match%5B%5D=ansibro_check_none", method="POST")
+    check("victoriametrics refuses to delete without the admin key", code in ("401", "403"), code)
+    code, _ = curl(f"http://{ip}:9428/internal/force_merge?partition_prefix=19700101")
+    check("victorialogs refuses admin requests without the admin key", code in ("401", "403"), code)
 
     # Logs arrive from every server.
     _, body = curl(f"http://{ip}:9428/select/logsql/field_values?query=_time:15m&field=node")

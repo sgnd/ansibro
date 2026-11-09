@@ -8,9 +8,13 @@
     - name: End the installer's mute on the monitoring server
       when: monitoring_app != '' and inventory_hostname == apps[monitoring_app]
       block:
+        # Alertmanager asks for its login (alertmanager_password in group_vars).
         - name: List the silences
           ansible.builtin.uri:
             url: "http://{{ node_ip }}:{{ observability_alertmanager_port | default(9093) }}/api/v2/silences"
+            url_username: "{{ alertmanager_user }}"
+            url_password: "{{ alertmanager_password }}"
+            force_basic_auth: true
           register: unmute_silences
           failed_when: false  # Alertmanager may not run yet: then nothing is muted
 
@@ -18,6 +22,9 @@
           ansible.builtin.uri:
             url: "http://{{ node_ip }}:{{ observability_alertmanager_port | default(9093) }}/api/v2/silence/{{ item.id }}"
             method: DELETE
+            url_username: "{{ alertmanager_user }}"
+            url_password: "{{ alertmanager_password }}"
+            force_basic_auth: true
           loop: >-
             {{ unmute_silences.json | default([]) | selectattr('createdBy', 'equalto', 'ansibro')
             | selectattr('status.state', 'equalto', 'active') | list }}

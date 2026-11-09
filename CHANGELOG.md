@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+Security fixes from a review. Each one also applies to a running cluster at the next `./install.sh`.
+- k3s: workers join with their own agent token (`state/secrets/k3s_agent_token`), not the server token.
+  With the server token a worker could read the cluster's CA keys and take over the cluster. On a running
+  cluster the managers restart one by one with the agent token, then the workers switch to it; running
+  pods keep running. The server token itself does not change: a worker that was broken into before
+  may still know it. A k3s server now marks its token file (`cred/passwd`) as old before it starts,
+  because k3s does not save an agent token added later to its database and would refuse the next start
+  (k3s discussion 14839).
+- With Authelia or Keycloak installed, the admin pages that have their own login (Portainer, Swarmpit,
+  Grafana, OpenBao, RabbitMQ, the RustFS console, Uptime Kuma and Beszel) ask for that login (with a
+  second factor) first; before, only the IP limit and their own password protected them. Requests from the
+  servers (and pods on k3s), and paths that programs call (Uptime Kuma's status pages, push monitors and
+  badges; Portainer's webhooks; health checks), skip it. Keycloak's own admin console stays as it was.
+  A program on your laptop that calls one of these apps by its web address now needs an SSH tunnel or
+  the app's port: see [docs/apps.md](docs/apps.md#with-authelia-or-keycloak-every-admin-page-asks-for-that-login).
+- An empty `admin_allow_from` (admin pages open to the whole internet) gets a warning: when `./install.sh`
+  starts, at its end, and in `state/summary.md`. It is a warning, not a stop, so running clusters still upgrade.
+- Alertmanager asks for a login (user `ansibro`, `state/secrets/alertmanager`), so a container in the
+  cluster can no longer mute every alert. vmalert, Grafana, the metrics scrape, the installer's mute,
+  `unmute.yml` and Traefik (the web page asks only for the admin login) use it. The Uptime Kuma monitor
+  "Monitoring server (its Watchdog alert)" gets the login too, also on a running cluster (the installer
+  sets it on the monitor it made). Alertmanager's metrics move from the `monitoring` job to `alertmanager`.
+  The monitoring apps restart once for this.
+- VictoriaMetrics and VictoriaLogs ask for a key (`state/secrets/victoria_admin_key`) on the pages that
+  delete or move data (delete series, snapshots, partitions, force merge, reload). Reading and adding
+  metrics and logs stays without a login: the agents on every server send them.
+- WireGuard public keys and the Beszel hub key are checked before they go into the other servers'
+  settings, so a server cannot add lines to them (wg-quick runs `PostUp` lines as root).
+- Keycloak's setup (with the master admin password) runs on the server Traefik runs on and calls its own
+  address, so the password no longer crosses the network to another server without a checked certificate
+  (on k3s, Traefik runs on a worker).
+- `requirements.txt` has the sha256 of every file of each pinned Python package, and `install.sh` (and the
+  offline bundle) install with `--require-hashes`. Dependabot updates the hashes with the versions; after a
+  change by hand, run `scripts/hash-requirements.sh`. The next `./install.sh` runs pip once more in `.venv`.
+- Releases: each offline bundle gets a signed build provenance (GitHub attestation). Check a bundle with
+  `gh attestation verify ansibro-24.04.tar.gz --repo sgnd/ansibro` (see [docs/offline.md](docs/offline.md)).
+
 Release readiness
 - `./install.sh --help` prints the usage. A missing config file names the file you gave and points
   to `examples/` (not always `config.yml`).

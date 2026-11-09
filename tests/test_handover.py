@@ -18,7 +18,8 @@ import tempfile
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN = os.path.dirname(sys.executable)  # .venv/bin, with Ansible and the Python that inventory.py needs
 # Some of the files the installer makes. Each gets a fake password that must not show up.
-SECRETS = ["traefik_admin", "postgres", "redis", "registry", "rustfs_access_key", "rustfs_secret_key", "restic"]
+SECRETS = ["traefik_admin", "postgres", "redis", "registry", "rustfs_access_key", "rustfs_secret_key", "restic",
+           "k3s_agent_token", "alertmanager", "victoria_admin_key"]
 FIELDS = {
     "ansibro_version", "domain", "orchestrator", "tls", "nodes", "apps", "traefik_nodes", "admin_sso",
     "database_app", "database_ha", "database_host", "database_port", "postgres_patroni", "mariadb_galera",

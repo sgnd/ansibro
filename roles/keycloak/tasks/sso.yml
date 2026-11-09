@@ -1,112 +1,116 @@
 # Keycloak as the login for the admin pages (when Authelia is not installed): realm "ansibro",
 # the client for oauth2-proxy, and the user "admin" who must set up an authenticator app (OTP)
-# at the first login. Uses Keycloak's admin API through Traefik (traefik_ip).
-# validate_certs is off: the URL is Traefik's IP (with the Host header), so the certificate's name
-# cannot match it, and with tls: selfsigned there is no CA to check against. The calls run on a server
-# and go to another server's ip (the servers' own network, or WireGuard).
+# at the first login. Uses Keycloak's admin API through Traefik (traefik_ip), with the master password.
+# The calls run on the server Traefik runs on (traefik_nodes[0]) and go to that server's own ip, so the
+# password never crosses the network to another server (Traefik passes it on to Keycloak inside the
+# cluster, like every Keycloak login). validate_certs is off: the URL is an IP (with the Host header), so
+# the certificate's name cannot match it, and with tls: selfsigned there is no CA to check against.
 
-- name: Wait for Keycloak
-  ansible.builtin.uri:
-    url: "https://{{ traefik_ip }}/realms/master"
-    headers: { Host: "{{ keycloak_host }}" }
-    validate_certs: false
-  register: keycloak_up
-  until: keycloak_up.status == 200
-  retries: 60
-  delay: 10
+- name: Set up Keycloak, from the server Traefik runs on
+  delegate_to: "{{ traefik_nodes[0] }}"
+  block:
+    - name: Wait for Keycloak
+      ansible.builtin.uri:
+        url: "https://{{ traefik_ip }}/realms/master"
+        headers: { Host: "{{ keycloak_host }}" }
+        validate_certs: false
+      register: keycloak_up
+      until: keycloak_up.status == 200
+      retries: 60
+      delay: 10
 
-- name: Log in to Keycloak's admin API
-  ansible.builtin.uri:
-    url: "https://{{ traefik_ip }}/realms/master/protocol/openid-connect/token"
-    method: POST
-    headers: { Host: "{{ keycloak_host }}" }
-    validate_certs: false
-    body_format: form-urlencoded
-    body:
-      grant_type: password
-      client_id: admin-cli
-      username: admin
-      password: "{{ keycloak_admin_password }}"
-  register: keycloak_token
-  no_log: true
+    - name: Log in to Keycloak's admin API
+      ansible.builtin.uri:
+        url: "https://{{ traefik_ip }}/realms/master/protocol/openid-connect/token"
+        method: POST
+        headers: { Host: "{{ keycloak_host }}" }
+        validate_certs: false
+        body_format: form-urlencoded
+        body:
+          grant_type: password
+          client_id: admin-cli
+          username: admin
+          password: "{{ keycloak_admin_password }}"
+      register: keycloak_token
+      no_log: true
 
-- name: Check the ansibro realm
-  ansible.builtin.uri:
-    url: "https://{{ traefik_ip }}/admin/realms/ansibro"
-    headers: "{{ keycloak_api_headers }}"
-    validate_certs: false
-    status_code: [200, 404]
-  register: keycloak_realm
-  no_log: true
+    - name: Check the ansibro realm
+      ansible.builtin.uri:
+        url: "https://{{ traefik_ip }}/admin/realms/ansibro"
+        headers: "{{ keycloak_api_headers }}"
+        validate_certs: false
+        status_code: [200, 404]
+      register: keycloak_realm
+      no_log: true
 
-- name: Create the ansibro realm
-  ansible.builtin.uri:
-    url: "https://{{ traefik_ip }}/admin/realms"
-    method: POST
-    headers: "{{ keycloak_api_headers }}"
-    validate_certs: false
-    body_format: json
-    body: { realm: ansibro, enabled: true, displayName: Ansibro }
-    status_code: [201]
-  when: keycloak_realm.status == 404
-  changed_when: true
-  no_log: true
+    - name: Create the ansibro realm
+      ansible.builtin.uri:
+        url: "https://{{ traefik_ip }}/admin/realms"
+        method: POST
+        headers: "{{ keycloak_api_headers }}"
+        validate_certs: false
+        body_format: json
+        body: { realm: ansibro, enabled: true, displayName: Ansibro }
+        status_code: [201]
+      when: keycloak_realm.status == 404
+      changed_when: true
+      no_log: true
 
-- name: Check the client for oauth2-proxy
-  ansible.builtin.uri:
-    url: "https://{{ traefik_ip }}/admin/realms/ansibro/clients?clientId=ansibro-admin"
-    headers: "{{ keycloak_api_headers }}"
-    validate_certs: false
-  register: keycloak_client
-  no_log: true
+    - name: Check the client for oauth2-proxy
+      ansible.builtin.uri:
+        url: "https://{{ traefik_ip }}/admin/realms/ansibro/clients?clientId=ansibro-admin"
+        headers: "{{ keycloak_api_headers }}"
+        validate_certs: false
+      register: keycloak_client
+      no_log: true
 
-- name: Create the client for oauth2-proxy
-  ansible.builtin.uri:
-    url: "https://{{ traefik_ip }}/admin/realms/ansibro/clients"
-    method: POST
-    headers: "{{ keycloak_api_headers }}"
-    validate_certs: false
-    body_format: json
-    body:
-      clientId: ansibro-admin
-      name: Ansibro admin pages
-      protocol: openid-connect
-      publicClient: false
-      secret: "{{ keycloak_oauth_client_secret }}"
-      standardFlowEnabled: true
-      directAccessGrantsEnabled: false
-      redirectUris: ["https://{{ keycloak_oauth_host }}/oauth2/callback"]
-    status_code: [201]
-  when: keycloak_client.json | length == 0
-  changed_when: true
-  no_log: true
+    - name: Create the client for oauth2-proxy
+      ansible.builtin.uri:
+        url: "https://{{ traefik_ip }}/admin/realms/ansibro/clients"
+        method: POST
+        headers: "{{ keycloak_api_headers }}"
+        validate_certs: false
+        body_format: json
+        body:
+          clientId: ansibro-admin
+          name: Ansibro admin pages
+          protocol: openid-connect
+          publicClient: false
+          secret: "{{ keycloak_oauth_client_secret }}"
+          standardFlowEnabled: true
+          directAccessGrantsEnabled: false
+          redirectUris: ["https://{{ keycloak_oauth_host }}/oauth2/callback"]
+        status_code: [201]
+      when: keycloak_client.json | length == 0
+      changed_when: true
+      no_log: true
 
-- name: Check the admin user
-  ansible.builtin.uri:
-    url: "https://{{ traefik_ip }}/admin/realms/ansibro/users?username=admin&exact=true"
-    headers: "{{ keycloak_api_headers }}"
-    validate_certs: false
-  register: keycloak_user
-  no_log: true
+    - name: Check the admin user
+      ansible.builtin.uri:
+        url: "https://{{ traefik_ip }}/admin/realms/ansibro/users?username=admin&exact=true"
+        headers: "{{ keycloak_api_headers }}"
+        validate_certs: false
+      register: keycloak_user
+      no_log: true
 
-# CONFIGURE_TOTP: at the first login, Keycloak asks to set up an authenticator app.
-- name: Create the admin user
-  ansible.builtin.uri:
-    url: "https://{{ traefik_ip }}/admin/realms/ansibro/users"
-    method: POST
-    headers: "{{ keycloak_api_headers }}"
-    validate_certs: false
-    body_format: json
-    body:
-      username: admin
-      email: "admin@{{ domain }}"
-      emailVerified: true
-      firstName: Admin
-      lastName: Ansibro
-      enabled: true
-      credentials: [{ type: password, value: "{{ keycloak_sso_password }}", temporary: false }]
-      requiredActions: [CONFIGURE_TOTP]
-    status_code: [201]
-  when: keycloak_user.json | length == 0
-  changed_when: true
-  no_log: true
+    # CONFIGURE_TOTP: at the first login, Keycloak asks to set up an authenticator app.
+    - name: Create the admin user
+      ansible.builtin.uri:
+        url: "https://{{ traefik_ip }}/admin/realms/ansibro/users"
+        method: POST
+        headers: "{{ keycloak_api_headers }}"
+        validate_certs: false
+        body_format: json
+        body:
+          username: admin
+          email: "admin@{{ domain }}"
+          emailVerified: true
+          firstName: Admin
+          lastName: Ansibro
+          enabled: true
+          credentials: [{ type: password, value: "{{ keycloak_sso_password }}", temporary: false }]
+          requiredActions: [CONFIGURE_TOTP]
+        status_code: [201]
+      when: keycloak_user.json | length == 0
+      changed_when: true
+      no_log: true
