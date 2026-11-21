@@ -1,0 +1,352 @@
+{## Berita Acara Serah Terima Pekerjaan (BAST), dengan Lampiran 1 sampai 3.
+    Kembarannya dalam bahasa Inggris (en/bast.md.j2) punya struktur yang sama.
+    PIHAK PERTAMA adalah pihak yang disebut pertama (bast.first_party); yang menyerahkan selalu vendor. ##}
+{% set NP = "Belum diisi" %}
+{% set bast = a.get("bast") or {} %}
+{% set doc = a.get("document") or {} %}
+{% set client = a.get("client") or {} %}
+{% set vendor = a.get("vendor") or {} %}
+{% set csign = client.get("signer") or {} %}
+{% set vsign = vendor.get("signer") or {} %}
+{% set contract = bast.get("contract") or {} %}
+{% set meterai = bast.get("meterai") or {} %}
+{% set dns = a.get("dns") or {} %}
+{% set delivery = a.get("delivery") or {} %}
+{% set support = a.get("support") or {} %}
+{% set warranty = support.get("warranty") or {} %}
+{% set stage = bast.get("stage") or "single" %}
+{% set first_party = bast.get("first_party") or "vendor" %}
+{% set copies = bast.get("copies") or 2 %}
+{% set pw_days = a.get("password_change_days") %}
+{% set state_owner = a.get("state_owner") or "vendor" %}
+{% set system = a.get("environment") or f.domain %}
+{% set kdbx_name = kdbx.name if kdbx else slug ~ ("-kredensial.kdbx" if first_lang == "id" else "-credentials.kdbx") %}
+{% set good = check and not check.stale and check.failed == 0 and check.rows %}
+{% set condition = "Baik dan berfungsi" if good else ("Dengan catatan (lihat butir 5)" if check else "Belum diuji") %}
+{% set osname = {"windows": "Windows", "macos": "macOS", "linux": "Linux"} %}
+{% set VP = "PIHAK PERTAMA" if first_party == "vendor" else "PIHAK KEDUA" %}
+{% set CP = "PIHAK KEDUA" if first_party == "vendor" else "PIHAK PERTAMA" %}
+{% macro v(x) %}{{ x | md if x not in (None, "") else NP }}{% endmacro %}
+{% macro d(x) %}{{ x | date if x else NP }}{% endmacro %}
+{% macro short(h) %}`{{ h[:16] }}…`{% endmacro %}
+{% macro party(who) %}
+{% if who == "vendor" %}
+**{{ v(vsign.get("name")) }}**, jabatan {{ v(vsign.get("title")) }}, dalam hal ini bertindak untuk dan atas nama **{{ v(vendor.get("name")) }}**, beralamat di {{ v(vendor.get("address")) }}, selanjutnya disebut **{{ VP }}**.
+{% else %}
+**{{ v(csign.get("name")) }}**, jabatan {{ v(csign.get("title")) }}, dalam hal ini bertindak untuk dan atas nama **{{ v(client.get("name")) }}**, beralamat di {{ v(client.get("address")) }}, selanjutnya disebut **{{ CP }}**.
+{% endif %}
+{% endmacro %}
+{% macro signatory(who) %}
+{% if who == "vendor" %}
+  - {role: {{ VP | q }}, company: {{ (vendor.get("name") or NP) | q }}, name: {{ (vsign.get("name") or NP) | q }}, title: {{ (vsign.get("title") or NP) | q }}, meterai: {{ "true" if meterai.get("enabled") and meterai.get("side") == "vendor" else "false" }}}
+{% else %}
+  - {role: {{ CP | q }}, company: {{ (client.get("name") or NP) | q }}, name: {{ (csign.get("name") or NP) | q }}, title: {{ (csign.get("title") or NP) | q }}, meterai: {{ "true" if meterai.get("enabled") and (meterai.get("side") or "client") == "client" else "false" }}}
+{% endif %}
+{% endmacro %}
+{% set order = ["vendor", "client"] if first_party == "vendor" else ["client", "vendor"] %}
+---
+title: {{ (bast.get("title") or "BERITA ACARA SERAH TERIMA PEKERJAAN") | q }}
+short-title: {{ "Berita Acara Serah Terima" | q }}
+lang: id
+region: ID
+docnumber: {{ (bast.get("number") or NP) | q }}
+version: {{ (doc.get("version") or "1.0") | q }}
+date: {{ ((bast.date | date) if bast.get("date") else NP) | q }}
+classification: {{ (doc.get("classification") or "TERBATAS") | q }}
+{% if draft %}
+draft: true
+{% endif %}
+labels: {page: "Halaman", of: "dari", toc: "Daftar Isi"}
+kop:
+  name: {{ (vendor.get("name") or NP) | q }}
+  address: {{ (vendor.get("address") or NP) | q }}
+{% if logo.vendor %}
+  logo: {{ logo.vendor | q }}
+{% endif %}
+signatories:
+{% for who in order %}
+{{ signatory(who) }}
+{% endfor %}
+meterai-label: {{ "Meterai Rp10.000" | q }}
+{% if bast.get("mengetahui") %}
+mengetahui-label: {{ "Mengetahui" | q }}
+mengetahui-count: {{ bast.mengetahui | length }}
+mengetahui:
+{% for m in bast.mengetahui %}
+  - {name: {{ (m.get("name") or NP) | q }}, title: {{ (m.get("title") or NP) | q }}, company: {{ (m.get("company") or "") | q }}}
+{% endfor %}
+{% endif %}
+{% if bast.get("witnesses") %}
+witnesses-label: {{ "Saksi-saksi" | q }}
+witnesses-count: {{ bast.witnesses | length }}
+witnesses:
+{% for m in bast.witnesses %}
+  - {name: {{ (m.get("name") or NP) | q }}, title: {{ (m.get("title") or NP) | q }}, company: {{ (m.get("company") or "") | q }}}
+{% endfor %}
+{% endif %}
+---
+
+```{=typst}
+#align(center)[
+```
+
+**{{ (bast.get("title") or "BERITA ACARA SERAH TERIMA PEKERJAAN") | md }}**\
+Nomor: {{ v(bast.get("number")) }}{% if stage != "single" %}\
+{{ "Serah Terima Pertama Pekerjaan (PHO)" if stage == "pho" else "Serah Terima Akhir Pekerjaan (FHO)" }}{% endif %}
+
+
+```{=typst}
+]
+```
+
+Dasar: {{ v(contract.get("name")) }}, nomor {{ v(contract.get("number")) }}, tanggal {{ d(contract.get("date")) }}.
+
+Pada hari ini, {{ (bast.date | datewords) if bast.get("date") else NP }}, bertempat di {{ v(bast.get("place")) }}, kami yang bertanda tangan di bawah ini:
+
+{% for who in order %}
+{{ loop.index }}. {{ party(who) | trim }}
+{% endfor %}
+
+## 1. Yang diserahterimakan {#bast-items}
+
+{% if stage == "pho" %}
+{{ VP }} menyatakan bahwa pekerjaan telah selesai 100%, dan menyerahkannya untuk sementara kepada {{ CP }}. {{ CP }} menerimanya dalam kondisi sebagaimana tercantum dalam tabel di bawah. Serah terima akhir (FHO) direncanakan pada {{ d(bast.get("fho_date")) }}. Masa garansi dimulai pada tanggal berita acara ini.
+{% elif stage == "fho" %}
+Dengan berita acara ini, {{ VP }} melakukan serah terima akhir pekerjaan kepada {{ CP }}, dan {{ CP }} menerima pekerjaan tersebut secara final, dalam kondisi sebagaimana tercantum dalam tabel di bawah.
+{% else %}
+{{ VP }} menyerahkan kepada {{ CP }}, dan {{ CP }} menerima dari {{ VP }}, pekerjaan dan barang-barang dalam tabel di bawah, dalam kondisi sebagaimana tercantum di dalamnya.
+{% endif %}
+{% if good %}
+Sistem diserahkan dalam keadaan baik dan berfungsi: uji terima tanggal {{ check.date }} lulus tanpa kegagalan (Lampiran 1).
+{% elif check %}
+Sistem diserahkan dengan catatan: {{ "uji terima lebih lama daripada instalasi terakhir" if check.stale else "uji terima menemukan " ~ check.failed ~ " kegagalan" }} (lihat butir 5).
+{% else %}
+Sistem belum diuji: uji terima belum dijalankan. Daftar pemeriksaannya ada di Lampiran 1.
+{% endif %}
+
+| No    | Uraian                     | Jumlah dan spesifikasi                                       | Kondisi         | Keterangan                                    |
+|:------|:---------------------------|:-------------------------------------------------------------|:----------------|:----------------------------------------------|
+{% set n = namespace(i=0) %}
+{% set n.i = n.i + 1 %}
+| {{ n.i }} | Sistem ({{ system | md }}) | Cluster {{ "Docker Swarm" if f.orchestrator == "swarm" else "Kubernetes (k3s)" }} berisi {{ f.nodes | length }} server ({{ f.nodes | map(attribute="name") | join(", ") }}), domain {{ f.domain }}, dipasang dengan ansibro {{ f.ansibro.version or NP }} | {{ condition }} | Instalasi terakhir {{ f.last_install or NP }} |
+{% set n.i = n.i + 1 %}
+| {{ n.i }} | Aplikasi | {% for ap in f.apps %}{{ ap.name }} {{ ap.version or "" }}{{ ", " if not loop.last }}{% endfor %} | {{ condition }} | Rincian di bab 4 dokumentasi teknis |
+{% for x in files if not x.name.endswith(".kdbx") %}
+{% set n.i = n.i + 1 %}
+{% set base = x.name.split("/")[-1] %}
+{% set other = x.name.startswith("en/") %}
+| {{ n.i }} | {% if "technical-documentation" in base or "dokumentasi-teknis" in base %}Dokumentasi teknis{% elif "laptop-guide" in base or "panduan-laptop" in base %}Panduan akses laptop ({{ osname.get(base.rsplit("-", 1)[-1].split(".")[0], "") }}){% elif base == "ssh_config.txt" %}Pengaturan SSH untuk laptop{% elif base == "hosts.txt" %}Baris untuk file hosts{% elif base.endswith(".crt") %}Otoritas sertifikat yang perlu dipercaya{% else %}File{% endif %}{{ " (bahasa Inggris)" if other }} | `{{ x.name }}`{{ (", versi " ~ (doc.get("version") or "1.0")) if base.endswith(".pdf") }} | Lengkap | SHA-256 {{ short(x.sha256) }} (Lampiran 3) |
+{% endfor %}
+{% set n.i = n.i + 1 %}
+| {{ n.i }} | File kredensial (terenkripsi) | `{{ kdbx_name }}`{{ (", " ~ (kdbx.size | num) ~ " byte") if kdbx }}; diserahkan melalui {{ v(delivery.get("kdbx_channel")) }} pada {{ d(bast.get("date")) }} | {{ "Lengkap, terenkripsi" if kdbx else NP }} | SHA-256 {{ short(kdbx.sha256) if kdbx else NP }} (Lampiran 3). Kata sandi pembuka disampaikan terpisah melalui {{ v(delivery.get("passphrase_channel")) }} kepada {{ v(delivery.get("recipient")) }}. Dokumen ini dan dokumen teknis tidak memuat kata sandi. |
+{% set n.i = n.i + 1 %}
+| {{ n.i }} | Domain dan DNS | {{ f.domain }}; DNS: {{ {"public": "DNS publik", "internal": "DNS perusahaan", "hosts": "file hosts (tanpa DNS)"}.get(dns.get("mode") or "public", NP) }}{{ (" di " ~ (dns.provider | md)) if dns.get("provider") and dns.get("mode") != "hosts" }} | Digunakan | Pemilik domain: {{ v(dns.get("owner")) }} |
+{% set n.i = n.i + 1 %}
+{% if f.backup.enabled %}
+| {{ n.i }} | Repositori backup | restic, {{ f.backup.kind }} di {{ f.backup.host or NP }}, setiap malam pukul {{ f.backup.time or NP }} ({{ f.timezone }}) | Digunakan | Kata sandinya ada di file kredensial, grup "{{ groups.recovery[first_lang] }}" |
+{% else %}
+| {{ n.i }} | Repositori backup | Tidak ada | Tidak ada | Backup belum disiapkan (lihat butir 5) |
+{% endif %}
+{% set n.i = n.i + 1 %}
+| {{ n.i }} | Akun | Hanya nama, tanpa nilai: lihat Lampiran 2 | Diserahkan | Nilainya hanya ada di file kredensial |
+
+## 2. Kewajiban setelah serah terima {#bast-duties}
+
+1. {{ CP }} mengganti semua kata sandi yang dipakai orang (Lampiran 2) dalam waktu {{ (pw_days ~ " (" ~ (pw_days | words) ~ ") hari") if pw_days else NP }} sejak tanggal berita acara ini, sebagaimana dijelaskan dalam bab 6 dan Lampiran E dokumentasi teknis, serta mengganti frasa sandi pembuka file kredensial. {{ CP }} menyimpan file kredensial sebagai catatan akun.
+2. Pada {{ d(a.get("vendor_access_end")) }}, kunci SSH dan alamat internet milik {{ VP }} dihapus dari server dan dari daftar izin (allow-list).
+{% if state_owner == "vendor" %}
+3. {{ VP }} menyimpan catatan installer (folder state/ milik ansibro), yang diperlukan untuk mengubah sistem di kemudian hari. Bila {{ CP }} mengganti kata sandi yang juga dipakai oleh installer, {{ CP }} mengirimkan nilai barunya kepada {{ VP }} dalam file kredensial yang dienkripsi ulang; bila tidak, instalasi berikutnya akan membatalkan perubahan itu atau gagal. {{ CP }} juga memegang salinan catatan ini di file kredensial, sehingga dapat berganti penyedia kapan saja.
+{% else %}
+3. {{ CP }} menyimpan catatan installer (folder state/ milik ansibro), dari file kredensial, grup "{{ groups.internal[first_lang] }}". {{ VP }} menghapus salinannya sendiri setelah disepakati para pihak.
+{% endif %}
+
+## 3. Garansi dan pemeliharaan {#bast-warranty}
+
+- Masa garansi: {{ (warranty.months ~ " (" ~ (warranty.months | words) ~ ") bulan") if warranty.get("months") else NP }}, sampai {{ d(warranty.get("until")) }}.
+- Lingkup: {{ v(warranty.get("scope")) }}.
+- Jam layanan: {{ v(support.get("hours")) }}. Waktu tanggap: {{ v(support.get("sla")) }}.
+- Sejak tanggal berita acara ini, risiko atas sistem beralih kepada {{ CP }}.
+
+{% if support.get("contacts") %}
+| Nama                       | Peran                    | Telepon                  | Email                            |
+|:---------------------------|:-------------------------|:-------------------------|:---------------------------------|
+{% for c in support.contacts %}
+| {{ v(c.get("name")) }} | {{ v(c.get("role")) }} | {{ v(c.get("phone")) }} | {{ v(c.get("email")) }} |
+{% endfor %}
+{% else %}
+Kontak dukungan: {{ NP }}.
+{% endif %}
+
+## 4. Uji terima {#bast-acceptance}
+
+{% if check %}
+Uji terima dijalankan pada {{ check.date or NP }}: {{ check.passed }} lulus, {{ check.failed }} gagal, {{ check.skipped }} dilewati.{{ " Uji ini lebih lama daripada instalasi terakhir (" ~ f.last_install ~ "), sehingga harus dijalankan ulang." if check.stale }}
+{% else %}
+Uji terima belum dijalankan. Daftar pemeriksaannya ada di Lampiran 1, untuk dikerjakan bersama saat sesi serah terima.
+{% endif %}
+Uji pemulihan (restore) terakhir: {{ d(a.get("restore_drill")) if a.get("restore_drill") else "belum pernah dilakukan" }}.
+
+## 5. Catatan {#bast-notes}
+
+{% set warn_text = {
+  "allowlist-empty": "Daftar izin {list} kosong: terbuka untuk siapa saja.",
+  "stale-secret": "Masih ada file kata sandi dari aplikasi yang sudah dihapus ({name}); file itu disimpan di file kredensial, grup \"" ~ groups.old[first_lang] ~ "\".",
+  "missing-secret": "File kata sandi yang seharusnya ada tidak ditemukan: {name}.",
+  "unknown-secret": "Ada file kata sandi yang tidak dikenal dejavu: {name}.",
+  "tls-selfsigned": "Halaman web tidak memakai sertifikat tepercaya (selfsigned): browser menampilkan peringatan.",
+  "no-backup": "Backup belum disiapkan.",
+  "backup-no-alert": "Tidak ada yang diberi tahu bila backup berhenti bekerja.",
+  "no-monitoring": "Pemantauan belum disiapkan: tidak ada yang menerima peringatan.",
+  "uptimekuma-notifications-manual": "Notifikasi Uptime Kuma harus diatur secara manual.",
+  "beszel-alerts-manual": "Peringatan Beszel harus diatur secara manual.",
+  "swarmpit-old-databases": "Swarmpit memakai versi database lama (risiko yang sudah diketahui).",
+  "ansibro-untested-version": "Versi ansibro ini ({version}) belum diuji dengan dejavu.",
+  "ansibro-dirty": "Folder installer berisi perubahan yang tidak tercatat di git.",
+  "shared-state": "Beberapa konfigurasi memakai satu folder state yang sama.",
+  "custom-cert-expires": "Sertifikat web berakhir dalam {days} hari.",
+  "not-documented": "Pengaturan yang tidak dijelaskan dalam dokumen ini: {key}.",
+  "unknown-app": "Aplikasi yang tidak dijelaskan dalam dokumen ini: {app}.",
+} %}
+{% set items = namespace(n=0) %}
+{% for x in a.get("notes") or [] %}
+{% set items.n = items.n + 1 %}
+- {{ x | md }}
+{% endfor %}
+{% for x in a.get("known_issues") or [] %}
+{% set items.n = items.n + 1 %}
+- Masalah yang diketahui: {{ x | md }}
+{% endfor %}
+{% set grouped = ["missing-secret", "stale-secret", "unknown-secret", "not-documented", "unknown-app"] %}
+{% for w in f.warnings if w.id not in grouped %}
+{% set items.n = items.n + 1 %}
+- Hal terbuka: {{ (warn_text.get(w.id) or w.id).format(**w) }}
+{% endfor %}
+{% for g in grouped %}
+{% set ws = f.warnings | selectattr("id", "equalto", g) | list %}
+{% if ws %}
+{% set items.n = items.n + 1 %}
+{% set key = {"not-documented": "key", "unknown-app": "app"}.get(g, "name") %}
+- Hal terbuka: {{ warn_text[g].format(**{key: (ws | map(attribute=key) | join(", "))}) }}
+{% endif %}
+{% endfor %}
+{% if check and check.failed %}
+{% set items.n = items.n + 1 %}
+- Pemeriksaan uji terima yang gagal: {% for r in check.rows if r.result == "FAIL" %}{{ r.text | md }}{{ "; " if not loop.last else "." }}{% endfor %}
+
+{% endif %}
+{% for x in a.get("out_of_scope") or [] %}
+{% set items.n = items.n + 1 %}
+- Tidak termasuk pekerjaan: {{ x | md }}
+{% endfor %}
+{% if items.n == 0 %}
+Tidak ada.
+{% endif %}
+
+```{=typst}
+#block(breakable: false)[
+```
+
+## 6. Penutup {#bast-closing}
+
+Demikian berita acara ini dibuat dengan sebenarnya dalam rangkap {{ copies }} ({{ copies | words }}), masing-masing mempunyai kekuatan hukum yang sama.{% if lang_both %} Berita acara ini juga dibuat dalam bahasa Inggris. Dalam hal terdapat perbedaan penafsiran, versi Bahasa Indonesia yang berlaku.{% endif %}
+
+
+```{=typst}
+#signatures()
+```
+
+```{=typst}
+]
+```
+
+```{=typst}
+#pagebreak()
+```
+
+## Lampiran 1. Daftar periksa uji terima {#bast-annex-checklist}
+
+Dikerjakan bersama saat sesi serah terima. Setiap pihak membubuhkan paraf di setiap baris.
+
+| □ | Butir                                  | Cara memeriksa                                           | Hasil      | Paraf Pihak I | Paraf Pihak II |
+|:--|:---------------------------------------|:---------------------------------------------------------|:-----------|:-----------|:-----------|
+{% for w in web %}
+| □ | <{{ w.url }}> terbuka | Buka di browser{{ " (peringatan sertifikat memang akan muncul)" if f.tls == "selfsigned" }} | | | |
+{% endfor %}
+| □ | Setiap login berhasil | Login dengan setiap entri web di Lampiran 2 | | | |
+{% if f.admin_sso %}
+| □ | 2FA terpasang di ponsel {{ CP }} | Login ke halaman admin dengan kode 6 angka | | | |
+{% endif %}
+| □ | File kredensial terbuka, SHA-256 cocok | Bandingkan dengan Lampiran 3, lalu buka dengan frasa sandi | | | |
+{% for p in people %}
+| □ | Akses laptop: {{ v(p.get("name")) }} | {{ {"viewer": "Halaman web", "operator": "Halaman web, SSH dan tunnel", "successor": "Halaman web, SSH, tunnel dan installer"}.get(p.get("persona"), "Halaman web") }} dari {{ osname.get(p.get("os"), NP) }} | | | |
+{% else %}
+| □ | Akses laptop | Halaman web, SSH dan tunnel dari laptop {{ CP }} | | | |
+{% endfor %}
+| □ | Kunci SSH {{ CP }} terpasang di setiap server | `ssh {{ slug }}-<server>` berhasil untuk setiap server | | | |
+| □ | Alamat {{ CP }} diizinkan | {{ "Daftar izin kosong (terbuka untuk siapa saja): " ~ CP ~ " menyetujui hal ini" if not f.ssh.allow_from and not f.admin_allow_from else "Halaman admin dan SSH terbuka dari alamat " ~ CP }} | | | |
+{% if f.orchestrator == "k3s" %}
+| □ | kubeconfig sudah disalin | `kubectl get nodes` berhasil melalui tunnel | | | |
+{% endif %}
+{% if f.backup.enabled %}
+| □ | Ada backup yang berumur kurang dari 26 jam | `sudo ansibro-backup snapshots` di salah satu server | | | |
+{% endif %}
+| □ | Uji pemulihan (restore) | {{ ("Dilakukan pada " ~ a.restore_drill) if a.get("restore_drill") else "Belum dilakukan" }} | | | |
+{% if f.monitoring.app %}
+| □ | Peringatan uji diterima | Peringatan sampai di saluran yang disepakati | | | |
+{% endif %}
+{% if has("uptimekuma") or has("beszel") %}
+| □ | Notifikasi diatur di {{ "Uptime Kuma dan Beszel" if has("uptimekuma") and has("beszel") else ("Uptime Kuma" if has("uptimekuma") else "Beszel") }} | Pengaturan notifikasi tiap aplikasi menunjukkan sebuah saluran | | | |
+{% endif %}
+{% if has("openbao") %}
+| □ | {{ CP }} memegang kunci pembuka (unseal key) OpenBao | Entri "{{ groups.recovery[first_lang] }}/OpenBao unseal key" | | | |
+{% endif %}
+| □ | Uji sistem (check.py) | `.venv/bin/python tests/check.py` | {{ (check.passed ~ " PASS / " ~ check.failed ~ " FAIL / " ~ check.skipped ~ " SKIP") if check else "" }} | | |
+
+```{=typst}
+#pagebreak()
+```
+
+## Lampiran 2. Daftar akun {#bast-annex-accounts}
+
+Nama-nama akun di file kredensial **{{ kdbx_name }}**. Tidak ada kata sandi yang ditulis di sini. Alamatnya tercantum di setiap entri.
+
+| Aplikasi       | Pengguna      | Entri di file kredensial                        | Kegunaan                      | Cara menggantinya                     |
+|:---------------|:--------------|:------------------------------------------------|:------------------------------|:--------------------------------------|
+{% set seen = namespace(paths=[]) %}
+{% for s in f.secrets if s.status == "present" and s.group not in ("internal", "old") %}
+{% set path = groups[s.group][first_lang] ~ "/" ~ s.title %}
+{% if path not in seen.paths %}
+{% set seen.paths = seen.paths + [path] %}
+| {{ s.app }} | {{ (s.user | md) if s.user else "—" }} | {{ path }} | {{ {"client": "Untuk login orang", "recovery": "Pemulihan (simpan baik-baik)", "internal": "Internal"}[s.audience] }} | {{ {"file": "Ubah file, jalankan installer", "both": "Di aplikasi dan di file bersamaan", "app": "Di aplikasi, lalu di file", "internal": "Hanya bila bocor"}[s.change] }}{{ " (belum diuji)" if not s.verified }} |
+{% endif %}
+{% endfor %}
+{% for c in f.config_secrets %}
+| config.yml | — | {{ groups.recovery[first_lang] }}/config.yml {{ c }} | Pemulihan (simpan baik-baik) | Di config.yml, jalankan installer |
+{% endfor %}
+{% if a.get("ssh_handover") == "generated" %}
+| SSH | — | {{ groups.infra[first_lang] }}/SSH key (client) | Kunci SSH {{ CP }} (lampiran) | Buat kunci baru, ganti di setiap server |
+{% endif %}
+| ansibro | — | {{ groups.internal[first_lang] }}/ansibro installer files | Untuk menjalankan installer lagi (lampiran) | Tidak berlaku lagi setelah kata sandi diganti |
+
+{% set internal = f.secrets | selectattr("status", "equalto", "present") | selectattr("group", "equalto", "internal") | list %}
+{% set old = f.secrets | selectattr("group", "equalto", "old") | list %}
+{% if internal %}Grup "{{ groups.internal[first_lang] }}" juga berisi {{ internal | length }} entri internal yang tidak pernah diketik orang{% if old %}, dan grup "{{ groups.old[first_lang] }}" berisi {{ old | length }} entri dari aplikasi yang sudah dihapus{% endif %}. {% endif %}Bab 6 dokumentasi teknis menjelaskan cara mengganti masing-masing.
+
+```{=typst}
+#pagebreak()
+```
+
+## Lampiran 3. Daftar file yang diserahkan {#bast-annex-files}
+
+Setiap file beserta ukuran dan kode SHA-256-nya (sidik jari isi file: perubahan sekecil apa pun menghasilkan kode lain). Kode milik berita acara ini sendiri ada di file SHA256SUMS.
+
+| File                                         | Ukuran (byte)  | SHA-256                                  |
+|:---------------------------------------------|:---------------|:-----------------------------------------|
+{% for x in files %}
+| `{{ x.name }}` | {{ x.size | num }} | `{{ x.sha256[:32] }}` `{{ x.sha256[32:] }}` |
+{% endfor %}
+{% if not kdbx %}
+| `{{ kdbx_name }}` | {{ NP }} | {{ NP }} |
+{% endif %}
+
+Cara memeriksa sebuah file: `Get-FileHash <file> -Algorithm SHA256` (Windows), `shasum -a 256 <file>` (macOS), `sha256sum <file>` (Linux).

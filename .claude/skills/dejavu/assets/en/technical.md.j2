@@ -1,0 +1,1552 @@
+{##
+  The Technical Handover Documentation (English). The Indonesian twin (id/technical.md.j2) has the
+  same headings, anchors, tables and code blocks in the same order.
+  Only facts from the render context are printed. An empty answer prints NP, never a guess.
+##}
+{% set NP = "*Not provided*" %}
+{% set doc = a.get("document") or {} %}
+{% set bast = a.get("bast") or {} %}
+{% set client = a.get("client") or {} %}
+{% set vendor = a.get("vendor") or {} %}
+{% set support = a.get("support") or {} %}
+{% set warranty = support.get("warranty") or {} %}
+{% set delivery = a.get("delivery") or {} %}
+{% set dns = a.get("dns") or {} %}
+{% set servers = a.get("servers") or {} %}
+{% set days = a.get("password_change_days") or 7 %}
+{% set state_owner = a.get("state_owner") or "vendor" %}
+{% set client_name = client.get("name") | md if client.get("name") else "the client" %}
+{% set vendor_name = vendor.get("name") | md if vendor.get("name") else "the vendor" %}
+{% set kdbx_name = slug ~ ("-kredensial.kdbx" if first_lang == "id" else "-credentials.kdbx") %}
+{% set swarm = f.orchestrator == "swarm" %}
+{% set orch = "Docker Swarm" if swarm else "k3s" %}
+{% set managers = f.nodes | selectattr("role", "equalto", "manager") | map(attribute="name") | list %}
+{% set all_nodes = f.nodes | map(attribute="name") | list %}
+{% set app_tier = f.nodes | selectattr("tier", "equalto", "app") | map(attribute="name") | list %}
+{% set mon = f.monitoring.app %}
+{% set alerts = [] %}
+{% for r in f.alerts %}
+{% if not (r.name.startswith("Postgres") and not has("postgres") or r.name.startswith("Mariadb") and not has("mariadb")
+  or r.name.startswith("Cache") and not f.cache or r.name.startswith("Swarm") and not swarm) %}
+{% set _ = alerts.append(r) %}
+{% endif %}
+{% endfor %}
+{% set alert_names = alerts | map(attribute="name") | list %}
+{% set patroni = has("postgres") and app["postgres"].ha %}
+{% set galera = has("mariadb") and app["mariadb"].ha %}
+{% set NAME = {"traefik": "Traefik", "kong": "Kong", "portainer": "Portainer", "swarmpit": "Swarmpit",
+  "keycloak": "Keycloak", "authelia": "Authelia", "postgres": "PostgreSQL", "mariadb": "MariaDB",
+  "redis": "Redis", "valkey": "Valkey", "rustfs": "RustFS", "garage": "Garage", "rabbitmq": "RabbitMQ",
+  "nats": "NATS", "uptimekuma": "Uptime Kuma", "beszel": "Beszel", "victoria": "Victoria monitoring",
+  "openbao": "OpenBao"} %}
+{% set LOGIN = {"authelia": "Authelia login with a code from your phone (2FA)",
+  "keycloak": "Keycloak login (realm ansibro) with a code from your phone (2FA)",
+  "": "Traefik login (user admin)"} %}
+{% set CLASS = {"file": "File first", "both": "App and file together", "app": "App first",
+  "internal": "Do not change"} %}
+{% set BACKUP = {"dump": "Database dump", "paused": "Copied while paused", "live": "Copied while running",
+  "partial": "Partly saved", "none": "Not saved"} %}
+{% set CRITICAL = {
+  "TargetDown": "The monitoring server cannot read one of its sources, so part of the system is not watched.",
+  "NodeDown": "A server is off or cannot be reached.",
+  "DiskFull": "A disk is almost completely full. Apps on it can stop or lose data.",
+  "AppDown": "An app does not answer on its port.",
+  "ContainerDown": "A container (a packaged app) has stopped.",
+  "SwarmServiceDown": "A cluster app runs fewer copies than it should.",
+  "SwarmNodeDown": "The cluster says one of its servers is not ready.",
+  "WebAppDown": "A web page cannot be reached through the front door (Traefik).",
+  "K3sNodeDown": "The cluster says one of its servers is not ready.",
+  "BackupTooOld": "The last good backup of a server is more than 26 hours old.",
+  "WireGuardPeerDown": "Two servers cannot talk over their encrypted link.",
+  "PostgresDown": "A PostgreSQL database server does not answer.",
+  "PostgresNoPrimary": "No database server accepts writes, so apps cannot save data.",
+  "MariadbDown": "A MariaDB database server does not answer.",
+  "CacheDown": "A cache server does not answer.",
+  "CacheNoPrimary": "No cache server accepts writes.",
+  "OpenBaoSealed": "OpenBao is locked (sealed), so apps cannot read their secrets."} %}
+{% set CAT = {"gateway": "web front door", "api-gateway": "API gateway", "management": "cluster management page",
+  "auth": "login", "database": "database", "cache": "cache", "storage": "file storage (S3)", "queue": "messages between apps",
+  "uptime": "uptime checks", "monitoring": "monitoring", "secrets": "secret store"} %}
+{% macro ver(x) %}{% if x.images and x.images[0].key != x.name %}{{ x.images[0].repo.split("/")[-1] }} {{ x.images[0].tag }}{% else %}{{ x.version or "" }}{% endif %}{% endmacro %}
+{% macro np(x) %}{{ x | md if x not in (None, "", []) else NP }}{% endmacro %}
+{% macro npdate(x) %}{{ x | date if x else NP }}{% endmacro %}
+{% macro entry(s) %}`{{ groups[s.group][first_lang] }}/{{ s.title }}`{% endmacro %}
+{% macro cls(s) %}{{ s.change if s.verified or s.change in ("both", "internal") else "both" }}{% endmacro %}
+{% macro anyone(lst) %}{{ "anyone (the list is empty)" if not lst else lst | cidrs }}{% endmacro %}
+{% macro runs_on(x) %}
+{%- if x.nodes -%}
+{% if x.ha and x.name in ("postgres", "redis", "valkey") %}{{ x.nodes[0] }} (main at install time), {{ x.nodes[1:] | join(", ") }}{% else %}{{ x.nodes | join(", ") }}{% endif %}
+{%- elif x.name == "traefik" -%}
+{{ f.traefik_nodes | join(", ") or "cluster" }}
+{%- elif x.name in ("portainer", "swarmpit", "authelia") -%}
+{{ f.first_manager }}
+{%- elif x.name in ("kong", "keycloak") and app_tier -%}
+cluster, on {{ app_tier | join(", ") }}
+{%- else -%}
+cluster
+{%- endif -%}
+{% endmacro %}
+---
+title: {{ "Technical Handover Documentation" | q }}
+subtitle: {{ ((a.get("environment") ~ " · " if a.get("environment") else "") ~ f.domain) | q }}
+short-title: {{ ("Technical Documentation · " ~ (client.get("short") or client.get("name") or f.domain)) | q }}
+lang: en
+docnumber: {{ doc.get("number") | q }}
+version: {{ (doc.get("version") or "1.0") | q }}
+date: {{ ((bast.get("date") or today) | date) | q }}
+classification: {{ (doc.get("classification") or "CONFIDENTIAL") | q }}
+numbered: true
+{% if draft %}
+draft: true
+{% endif %}
+labels: {page: "Page", of: "of", toc: "Contents"}
+cover:
+  kicker: {{ "HANDOVER DOCUMENTATION" | q }}
+{% if logo.vendor %}
+  logo: {{ logo.vendor | q }}
+{% endif %}
+  rows:
+    - {label: "For", value: {{ (client.get("name") or "Not provided") | q }}}
+    - {label: "By", value: {{ (vendor.get("name") or "Not provided") | q }}}
+    - {label: "System", value: {{ ((a.get("environment") ~ ", " if a.get("environment") else "") ~ f.domain) | q }}}
+    - {label: "Document number", value: {{ (doc.get("number") or "Not provided") | q }}}
+    - {label: "Version", value: {{ (doc.get("version") or "1.0") | q }}}
+    - {label: "Date", value: {{ ((bast.get("date") or today) | date) | q }}}
+    - {label: "Classification", value: {{ (doc.get("classification") or "CONFIDENTIAL") | q }}}
+    - {label: "Distribution", value: {{ ((client.get("name") or "the client") ~ " and " ~ (vendor.get("name") or "the vendor") ~ " only") | q }}}
+  footer: {{ ("Made with dejavu " ~ dejavu ~ " from ansibro " ~ (f.ansibro.version or f.ansibro.describe or "(version unknown)") ~ ". This document holds no password. It describes how the system is reached, so keep it confidential.") | q }}
+---
+
+# Document control {#control .unnumbered}
+
+| Role | Name |
+|:---------------|:--------------------------------------------------------|
+| Prepared by | {{ np(doc.get("prepared_by")) }} |
+| Reviewed by | {{ np(doc.get("reviewed_by")) }} |
+| Approved by | {{ np(doc.get("approved_by")) }} |
+
+{% if doc.get("revisions") %}
+| Version | Date | By | Change |
+|:--------|:-----------|:----------------|:-----------------------------------------|
+{% for r in doc.get("revisions") %}
+| {{ np(r.get("version")) }} | {{ r.get("date") | iso if r.get("date") else NP }} | {{ np(r.get("by")) }} | {{ np(r.get("change")) }} |
+{% endfor %}
+{% else %}
+Revisions: *none recorded*.
+{% endif %}
+
+This document was made with dejavu {{ dejavu }} from ansibro {{ f.ansibro.version or f.ansibro.describe or "(version unknown)" }}{% if f.ansibro.dirty %} (with local changes){% endif %}, configuration `{{ f.config }}`, last install {{ npdate(f.last_install) }}.
+It contains no password. Every password is in the credentials file `{{ kdbx_name }}`.
+Where an answer was not given, the text says *Not provided*.
+
+## How to read this document {#how-to-read .unnumbered}
+
+- **Everyone** (people who only use the web pages): read [chapter 1](#summary), [chapter 5](#access), [chapter 6](#credentials) and [chapter 11](#support).
+- **Operators** (people who look after the servers): read everything.
+- Technical words are explained the first time they appear, and again in the [glossary](#appendix-glossary) (Appendix H).
+- A red box marks something you must act on.
+
+# Summary {#summary}
+
+## What was built {#summary-built}
+
+{{ vendor_name }} built a system of {{ f.nodes | length }} server{{ "s" if f.nodes | length != 1 else "" }} for {{ client_name }}.
+The system answers on the web address `{{ f.domain }}` and the pages below it, such as `traefik.{{ f.domain }}`.
+It was set up with ansibro, an installer that puts the same programs on every server in the same way.
+It runs these programs:
+
+{% for x in f.apps %}
+- **{{ NAME.get(x.name, x.name) }}**: {{ (x.about | t) if x.about else (x.info | md) }}
+{% endfor %}
+{% for x in a.get("extra_apps") or [] %}
+- **{{ np(x.get("name")) }}** (your own app): {{ np(x.get("about")) }}
+{% endfor %}
+
+{% if a.get("summary_note") %}
+{{ a.get("summary_note") | md }}
+
+{% endif %}
+## Six things to know first {#summary-six}
+
+1. **Where the passwords are.** Every password is in one locked file, `{{ kdbx_name }}`. Open it with KeePassXC (see [chapter 5](#access)). The words that open it were given separately{% if delivery.get("passphrase_channel") %} by {{ delivery.get("passphrase_channel") | md }}{% endif %}{% if delivery.get("recipient") %} to {{ delivery.get("recipient") | md }}{% endif %}.
+2. **Change the passwords within {{ days }} days.** The vendor knows them today. [Chapter 6](#credentials) says how, and [Appendix E](#appendix-passwords) is the checklist.
+{% if web %}
+3. **How to open the admin pages.** Use a web browser and go to the addresses in [chapter 4](#apps), for example <https://{{ web[0].host }}.{{ f.domain }}{{ web[0].path }}>.
+{%- if f.admin_allow_from %} They open only from the internet addresses on the allow-list.{% endif %}
+{%- if f.admin_sso == "authelia" %} You log in with a password and a code from an app on your phone.{% elif f.admin_sso == "keycloak" %} You log in with a password and a code from an app on your phone.{% endif %}
+
+{% else %}
+3. **How to open the admin pages.** This system has no web pages. The servers are managed over SSH (see [chapter 5](#access)).
+{% endif %}
+{% if f.backup.enabled %}
+4. **Backup is on.** Every night at {{ f.backup.time }} ({{ f.timezone }}) each server copies its data to {{ "`" ~ f.backup.host ~ "`" if f.backup.host else "a storage place outside the servers" }}.
+{% else %}
+4. **There is no backup.** If a server is lost, its data is lost. See [chapter 7](#backup).
+{% endif %}
+{% if mon == "victoria" %}
+5. **Alerts are on.** Problems are reported to {% for c in f.monitoring.channels %}{{ c.kind }}{{ ", " if not loop.last else "" }}{% else %}*no channel yet*{% endfor %}. See [chapter 8](#monitoring).
+{% elif mon == "beszel" %}
+5. **Alerts must still be set up.** Beszel shows the health of the servers, but it sends alerts only after you set them up in its page. See [chapter 8](#monitoring).
+{% else %}
+5. **You receive no alerts.** Nothing watches the system and tells you when it breaks. See [chapter 8](#monitoring).
+{% endif %}
+{% set c0 = (support.get("contacts") or [{}])[0] %}
+6. **Who to call.** {% if c0.get("name") %}{{ c0.get("name") | md }}{% if c0.get("role") %} ({{ c0.get("role") | md }}){% endif %}{% if c0.get("phone") %}, {{ c0.get("phone") | md }}{% endif %}{% if c0.get("email") %}, {{ c0.get("email") | md }}{% endif %}{% else %}{{ NP }}{% endif %}{% if support.get("hours") %}, {{ support.get("hours") | md }}{% endif %}. See [chapter 11](#support).
+
+## Scope {#summary-scope}
+
+**Part of this work:**
+
+- {{ f.nodes | length }} server{{ "s" if f.nodes | length != 1 else "" }} set up with ansibro, and the {{ f.apps | length }} programs listed above.
+- This document, the laptop guides, the handover certificate and the credentials file.
+
+**Not part of this work:**
+
+{% for x in a.get("out_of_scope") or [] %}
+- {{ x | md }}
+{% else %}
+- {{ NP }}
+{% endfor %}
+
+# Architecture {#architecture}
+
+![The servers and the apps on them](architecture.svg)
+
+## Cluster and high availability {#architecture-ha}
+
+{% if f.nodes | length > 1 %}
+The servers form a *cluster*: a group of servers that work as one.
+{% else %}
+The server runs as a *cluster* of one. A cluster is a group of servers that work as one; more servers can be added later.
+{% endif %}
+{% if swarm %}
+The cluster is run by *Docker Swarm*, which starts each app in a *container* (an app packed with everything it needs) and restarts it when it stops.
+{% else %}
+The cluster is run by *k3s*, a small edition of Kubernetes. It starts each app in a *container* (an app packed with everything it needs) and restarts it when it stops.
+{% endif %}
+*Managers* are the servers that steer the cluster. The cluster keeps working while more than half of its managers are up.
+
+*High availability* (HA) means that a part keeps working when one server stops. This is the HA level of each part:
+
+| Part | How it is set up | If one server stops |
+|:----------------|:--------------------------------------|:--------------------------------------|
+| Cluster managers | {{ managers | length }} manager{{ "s" if managers | length != 1 else "" }}: {{ managers | join(", ") }} | {% if managers | length >= 3 %}The cluster keeps working ({{ (managers | length - 1) // 2 }} may stop){% else %}The cluster cannot be steered until the manager is back{% endif %} |
+{% if f.traefik_nodes %}
+| Web entry (Traefik) | On {{ f.traefik_nodes | join(", ") }} | {% if f.traefik_nodes | length > 1 %}DNS still points at the stopped server; browsers may try it first{% else %}No web page opens until that server is back{% endif %} |
+{% endif %}
+{% if f.database %}
+| Database ({{ NAME.get(f.database.app, f.database.app) }}) | {% if f.database.ha and f.database.app == "postgres" %}Patroni on {{ app["postgres"].nodes | join(", ") }}, with etcd and a database-proxy{% elif f.database.ha %}Galera on {{ app["mariadb"].nodes | join(", ") }}, with a database-proxy{% else %}One server: {{ runs_on(app[f.database.app]) }}{% endif %} | {% if f.database.ha and f.database.app == "postgres" %}Another server becomes the primary by itself{% elif f.database.ha %}The other two keep taking writes{% else %}The database stops until the server is back{% endif %} |
+{% endif %}
+{% if f.cache %}
+| Cache ({{ NAME.get(f.cache.app, f.cache.app) }}) | {% if f.cache.ha %}Primary and two copies with Sentinel on {{ app[f.cache.app].nodes | join(", ") }}{% else %}One server: {{ runs_on(app[f.cache.app]) }}{% endif %} | {% if f.cache.ha %}Sentinel makes a copy the new primary{% else %}The cache stops until the server is back{% endif %} |
+{% endif %}
+{% if has("garage") %}
+| Storage (Garage) | {{ app["garage"].nodes | length }} server{{ "s" if app["garage"].nodes | length != 1 else "" }}, {{ app["garage"].nodes | length }} cop{{ "ies" if app["garage"].nodes | length != 1 else "y" }} of every file | {% if app["garage"].ha %}Files stay available from the other copies{% else %}Storage stops until the server is back{% endif %} |
+{% elif has("rustfs") %}
+| Storage (RustFS) | One server: {{ runs_on(app["rustfs"]) }} | Storage stops until the server is back |
+{% endif %}
+
+## How a visitor reaches an app {#architecture-traffic}
+
+{% if f.traefik_nodes %}
+1. *DNS* (the internet's address book) turns `anything.{{ f.domain }}` into the public address of {{ f.traefik_nodes | join(", ") }}.
+2. The browser connects to *Traefik*, the front door, on port 443 (HTTPS). Port 80 only redirects to 443.
+3. Traefik checks who may pass. Each page has one *guard*:
+   - **admin**: the visitor's address must be on the admin allow-list, then the admin login asks for a password{% if f.admin_sso %} and a code (2FA){% endif %};
+   - **admin-ip**: the address must be on the admin allow-list; the app then shows its own login;
+   - **public**: anyone may open it; the app has its own login, or none.
+4. Traefik sends the visitor to the app, wherever it runs in the cluster.
+
+The admin allow-list (`admin_allow_from`) is {{ anyone(f.admin_allow_from) }}.
+{% else %}
+Traefik is not installed, so this system has no web pages. Apps are reached through SSH (see [chapter 5](#access)).
+{% endif %}
+
+## The first manager {#architecture-first}
+
+`{{ f.first_manager }}` is the *first manager*. It has jobs the other servers do not have:
+
+- ansibro and its acceptance test run their checks from it.
+{% if has("portainer") or has("swarmpit") or has("authelia") %}
+{% set fm = [] %}
+{% for k in ["portainer", "swarmpit", "authelia"] if has(k) %}{% set _ = fm.append(NAME[k]) %}{% endfor %}
+- {{ fm | join(" and ") }} keep{{ "s" if fm | length == 1 else "" }} {{ "its" if fm | length == 1 else "their" }} data on it.
+{% endif %}
+{% if has("authelia") %}
+- Authelia writes its first 2FA code and password-reset links to a file on it.
+{% endif %}
+{% if f.backup.enabled %}
+- Its nightly backup also holds the {{ "Swarm state" if swarm else "k3s snapshot" }}, a copy of `config.yml` and a copy of every password file.
+{% endif %}
+- It holds the certificate authority of the private image registry.
+- **It must never be removed from the cluster.**
+
+## Components {#architecture-components}
+
+ansibro also installs these parts. They are not apps you chose, but they belong to the system.
+
+| Component | Where | Port | Version | License | What it does |
+|:-----------|:------------|:-----|:-------------|:----------|:------------------------------------|
+{% for c in f.components %}
+| {{ c.name }} | {{ c.where }} | {{ c.port or "" }} | {{ c.version }} | {{ c.license }} | {{ (c.about | t).replace("<domain>", f.domain) | md }} |
+{% endfor %}
+
+# Servers and network {#servers}
+
+## Servers {#servers-list}
+
+The *cluster IP* is the address the servers use among themselves. The *SSH address* is where people and the installer log in.
+
+| Server | Role | Tier | Cluster IP | SSH address | Public IP |
+|:-----------|:-----------|:---------|:-------------|:--------------|:--------------|
+{% for n in reach %}
+| {{ n.name }}{% if n.first %} (first manager){% endif %} | {{ n.role }} | {{ n.tier or "" }} | {{ n.ip }} | {{ n.host }} | {{ n.public_ip or ("same as SSH address" if n.direct else NP) }} |
+{% endfor %}
+
+{% set specs = check.servers if check else {} %}
+| Server | Provider | Region | Size | Operating system |
+|:-----------|:---------------|:-------------|:---------------------------|:------------------|
+{% for n in reach %}
+{% set h = specs.get(n.name) or {} %}
+| {{ n.name }} | {{ np(n.provider or a.get("provider")) }} | {{ np(n.region) }} | {% if h.get("reached") %}{{ h.get("vcpu") }} vCPU, {{ h.get("ram_gb") }} GB memory, {{ h.get("disk_gb") }} GB disk{% elif h %}*Not reached*{% else %}*Not checked*{% endif %} | {% if h.get("reached") %}{{ h.get("os") }}{% if h.get("kernel") %} (kernel {{ h.get("kernel") }}){% endif %}{% elif h %}*Not reached*{% else %}*Not checked*{% endif %} |
+{% endfor %}
+
+| Server | Host-key fingerprint (ED25519) |
+|:-----------|:--------------------------------------------------------------|
+{% for n in reach %}
+{% set h = specs.get(n.name) or {} %}
+| {{ n.name }} | {% if h.get("fingerprint") %}`{{ h.get("fingerprint") }}`{% elif h and not h.get("reached") %}*Not reached*{% else %}*Not checked*{% endif %} |
+{% endfor %}
+
+The *host-key fingerprint* lets you check, on your first SSH login, that you reach the real server. [Chapter 5](#access) shows how to read it.
+
+{% set server_apps = f.nodes | selectattr("apps") | list %}
+{% if server_apps %}
+Apps that run on a fixed server (all other apps run in the cluster):
+
+| Server | Apps |
+|:-------------|:----------------------------------------------------------|
+{% for n in server_apps %}
+| {{ n.name }} | {% for k in n.apps %}{{ NAME.get(k, k) }}{{ ", " if not loop.last else "" }}{% endfor %} |
+{% endfor %}
+{% endif %}
+
+## DNS {#servers-dns}
+
+{% if f.traefik_nodes %}
+{% set tn = reach | selectattr("traefik") | list %}
+| Setting | Value |
+|:--------------------|:---------------------------------------------------|
+| Mode | {{ {"public": "public DNS", "internal": "the company's internal DNS", "hosts": "no DNS: a hosts file on each laptop"}.get(dns.get("mode") or "public") }} |
+| Record | `*.{{ f.domain }}` (type A) |
+| Points to | {% for n in tn %}{{ n.public_ip or n.address }} ({{ n.name }}){{ ", " if not loop.last else "" }}{% endfor %} |
+| DNS provider | {{ np(dns.get("provider")) }} |
+| Domain owner | {{ np(dns.get("owner")) }} |
+| CDN in front | {{ "yes" if dns.get("proxied") else "no" }} |
+
+{% if f.tls == "letsencrypt" %}
+With Let's Encrypt, Traefik runs on {{ f.traefik_nodes | join(", ") }} only, because Let's Encrypt must reach the server that asked for the certificate.
+{% endif %}
+{% if dns.get("proxied") %}
+
+> **Important:** a CDN in front of the servers hides the visitor's real address. Traefik then sees the CDN's address, and the allow-lists no longer work as intended.
+
+{% endif %}
+{% if (dns.get("mode") or "public") == "hosts" %}
+There is no DNS for `{{ f.domain }}`. Each laptop adds these lines to its *hosts file* (the file `hosts.txt` holds the same lines):
+
+```text
+{% include "hosts.txt.j2" %}
+```
+
+A hosts file gives one address per name, so there is no fallback to another server.
+{% endif %}
+{% else %}
+Traefik is not installed, so no DNS record is needed for web pages.
+{% endif %}
+
+## Certificates (TLS) {#servers-tls}
+
+A *certificate* proves to the browser that the page is really `{{ f.domain }}`, and encrypts the connection (*TLS*, the "s" in https).
+
+{% if f.tls == "letsencrypt" %}
+| Setting | Value |
+|:--------------------|:---------------------------------------------------|
+| Mode | Let's Encrypt (free public certificates, made automatically) |
+| Issuer | {{ "`" ~ f.acme_server ~ "` (a private ACME server)" if f.acme_server else "Let's Encrypt" }} |
+| Contact email | {{ f.acme_email or NP }} |
+| Expiry | Each certificate lasts a few months; Traefik renews it before it ends |
+| Renewal | Automatic. DNS must point at {{ f.traefik_nodes | join(", ") }} and port 80 must stay open |
+{% if f.ca_file or (a.get("tls") or {}).get("client_ca") %}
+| CA file | `{{ slug }}-ca.crt`, delivered with this document. Laptops must trust it ([chapter 5](#access)) |
+{% endif %}
+{% elif f.tls == "custom" %}
+| Setting | Value |
+|:--------------------|:---------------------------------------------------|
+| Mode | Your own certificate (custom) |
+{% if f.tls_cert %}
+| For | {{ f.tls_cert.sans | join(", ") or f.tls_cert.subject }} |
+| Issuer | {{ f.tls_cert.issuer | md }} |
+| Expiry | {{ f.tls_cert.not_after }} |
+{% else %}
+| For | *Not checked* |
+| Issuer | *Not checked* |
+| Expiry | *Not checked* |
+{% endif %}
+| Renewal | By hand: replace the certificate and key files, then run `./install.sh` |
+{% if f.ca_file or (a.get("tls") or {}).get("client_ca") %}
+| CA file | `{{ slug }}-ca.crt`, delivered with this document. Laptops must trust it ([chapter 5](#access)) |
+{% endif %}
+{% else %}
+| Setting | Value |
+|:--------------------|:---------------------------------------------------|
+| Mode | Self-signed |
+| Issuer | Traefik's own built-in certificate |
+| Expiry | It is made again each time Traefik starts |
+| Renewal | None |
+
+> **Important:** with a self-signed certificate every browser shows a warning on every page, and there is no certificate you can install to stop it. Recommended: switch to `tls: custom` with a certificate from your company's certificate authority.
+{% endif %}
+
+{% set seen = (check.web if check else []) | selectattr("not_after") | list %}
+{% if seen %}
+On {{ check.date or "the test day" }}, the served certificate was issued by {{ seen[0].issuer | md }} and ends on {{ seen[0].not_after }}{% if seen | map(attribute="not_after") | unique | list | length > 1 %} (the pages differ; see [chapter 12](#acceptance)){% endif %}.
+
+{% endif %}
+## Firewall {#servers-firewall}
+
+A *firewall* decides which connections may reach a server. Each server runs the firewall *ufw*.
+
+- ansibro owns the firewall. It rewrites the rules when they change, and **rules added by hand are removed**. Change the lists below in `config.yml`, then run `./install.sh`.
+- Ports published by Docker containers go past ufw.
+- An *allow-list* is a list of internet addresses that may connect. An empty list means anyone may connect.
+
+| List | What it guards | Addresses | Whose |
+|:----------------|:-------------------|:----------------------|:----------------------|
+{% for name, lst, what in [("ssh.allow_from", f.ssh.allow_from, "SSH to every server"), ("admin_allow_from", f.admin_allow_from, "the admin web pages")] %}
+{% if lst %}
+{% for c in lst %}
+{% set ns = namespace(owners=[]) %}
+{% for p in people %}
+{% for ip in p.get("allow_from") or [] %}
+{% if (ip | string).split("/")[0] == (c | string).split("/")[0] and p.get("name") not in ns.owners %}
+{% set ns.owners = ns.owners + [p.get("name")] %}
+{% endif %}
+{% endfor %}
+{% endfor %}
+{% set owners = ns.owners %}
+| {{ "`" ~ name ~ "`" if loop.first else "" }} | {{ what if loop.first else "" }} | {{ c }} | {{ owners | map("md") | join(", ") if owners else NP }} |
+{% endfor %}
+{% else %}
+| `{{ name }}` | {{ what }} | **open to anyone** | |
+{% endif %}
+{% endfor %}
+{% for r in f.firewall_allow %}
+| {{ "`firewall_allow`" if loop.first else "" }} | port {{ r.get("port", "") }}/{{ r.get("proto", "tcp") }} | {{ r.get("from", "anyone") }} | {{ NP }} |
+{% endfor %}
+
+{% if not f.ssh.allow_from or not f.admin_allow_from %}
+> **Important:** {% if not f.ssh.allow_from %}SSH is open to anyone on the internet{% endif %}{% if not f.ssh.allow_from and not f.admin_allow_from %}, and {% endif %}{% if not f.admin_allow_from %}the admin pages are open to anyone on the internet (they still ask for a login){% endif %}. Recommended: list your office and staff addresses in `config.yml`, then run `./install.sh`.
+
+{% endif %}
+{% if blocked %}
+> **Important:** these people's addresses are not on the allow-lists yet, so they cannot connect: {% for b in blocked %}{{ b.name | md }} ({{ b.ip }}){{ ", " if not loop.last else "" }}{% endfor %}.
+
+{% endif %}
+## Ports {#servers-ports}
+
+A *port* is a numbered door on a server for one kind of connection.
+
+| Port | What | On which servers | Open to |
+|:---------|:-------------------|:-------------------------|:-------------------------|
+| {{ f.ssh.port }}/tcp | SSH | all | {{ anyone(f.ssh.allow_from) }} |
+{% if f.traefik_nodes %}
+| 80, 443/tcp | Web pages (Traefik) | {{ f.traefik_nodes | join(", ") }} | anyone; admin pages also check `admin_allow_from` |
+{% endif %}
+{% for x in f.apps %}
+{% for p in x.ports %}
+| {{ p.port }}/tcp | {{ p.use if p.use == NAME.get(x.name) else NAME.get(x.name, x.name) ~ " " ~ p.use }} | {{ x.nodes | join(", ") or "cluster" }} | the other cluster servers only |
+{% endfor %}
+{% endfor %}
+{% set WHERE = {"managers": managers | join(", "), "every server": "all",
+  "cache servers": (app[f.cache.app].nodes | join(", ") if f.cache else ""),
+  "mariadb servers": (app["mariadb"].nodes | join(", ") if has("mariadb") else "")} %}
+{% for c in f.components if c.port and c.where != "cluster" %}
+| {{ c.port }}/{{ "udp" if c.name == "wireguard" else "tcp" }} | {{ "k3s API" if c.name == "k3s" else c.name }} | {{ managers | join(", ") if c.name == "k3s" else WHERE.get(c.where, c.where) }} | the other cluster servers only |
+{% endfor %}
+{% if has("beszel") %}
+| 45876/tcp | Beszel agent | all | the other cluster servers only |
+{% endif %}
+{% for r in f.firewall_allow %}
+| {{ r.get("port", "") }}/{{ r.get("proto", "tcp") }} | `firewall_allow` rule | all | {{ r.get("from", "anyone") }} |
+{% endfor %}
+
+The databases, cache, storage and queues are reached from a laptop through an SSH tunnel (see [chapter 5](#access)).
+
+## Network between the servers {#servers-wireguard}
+
+{% if f.wireguard %}
+The servers talk to each other through *WireGuard*, an encrypted network (UDP port {{ f.wireguard_port }}). The cluster IPs above are WireGuard addresses; SSH uses the SSH address.
+WireGuard connects the servers only. It is **not** a VPN for laptops.
+{% else %}
+WireGuard is off. The servers talk to each other on their cluster IPs, and ansibro does not encrypt that traffic. This is fine on a private network of the provider.
+{% endif %}
+
+## Time and internet {#servers-time}
+
+- Time zone: **{{ f.timezone }}**. Backup times and logs use it.
+{% if f.offline %}
+- **Offline mode:** the servers have no internet. Programs come from a bundle on the first manager. For correct time, put a local time (NTP) server in `/etc/chrony/sources.d/local.sources` on each server.
+{% else %}
+- The servers use the internet to get programs and the correct time.
+{% endif %}
+
+# Applications {#apps}
+
+## Overview {#apps-overview}
+
+| App | What it is for | Runs on | Version | License |
+|:-----------|:-------------------------------|:-------------------|:-----------|:-----------|
+{% for x in f.apps %}
+| {{ NAME.get(x.name, x.name) }} | {{ CAT.get(x.category, x.category) }} | {{ runs_on(x) }} | {{ ver(x) }} | {{ (x.license.split(" (")[0]) | md }} |
+{% endfor %}
+
+{% if web %}
+## Web pages {#apps-web}
+
+| Address | App | Who can open it | Login |
+|:------------------------------------|:-----------|:--------------------|:--------------------|
+{% for x in f.apps %}
+{% for w in x.web %}
+| <{{ w.url }}> | {{ NAME.get(x.name, x.name) }} | {% if w.guard == "public" %}anyone{% else %}{{ "anyone" if not f.admin_allow_from else "admin allow-list" }}{% endif %} | {% if w.login == "layer" %}{{ LOGIN[f.admin_sso] }}{% elif w.login == "own" %}the app's own login{% else %}none{% endif %} |
+{% endfor %}
+{% endfor %}
+{% endif %}
+
+{% for x in f.apps %}
+## {{ NAME.get(x.name, x.name) }} {#app-{{ x.name }}}
+
+{% if x.about %}
+{{ x.about | t }}
+{% else %}
+dejavu has no description of this app. ansibro says: {{ x.info | md }}
+{% endif %}
+
+{% set rows = f.secrets | selectattr("app", "equalto", x.name) | selectattr("status", "equalto", "present") | rejectattr("group", "equalto", "internal") | list %}
+| Item | Detail |
+|:----------------|:-------------------------------------------------------|
+| Runs on | {{ runs_on(x) }} |
+{% for w in x.web %}
+| {{ "Web page" if loop.first else "" }} | <{{ w.url }}> ({% if w.login == "layer" %}{{ LOGIN[f.admin_sso] }}{% elif w.login == "own" %}its own login{% else %}no login{% endif %}) |
+{% endfor %}
+{% for p in x.ports %}
+| {{ p.use }} | {% for n in x.nodes %}`{{ nodes[n].ip }}:{{ p.port }}`{{ ", " if not loop.last else "" }}{% endfor %}{% if f.database and f.database.ha and f.database.app == x.name %}; apps in the cluster use `{{ f.database.host }}:{{ f.database.port }}`{% endif %} |
+{% endfor %}
+| From a laptop | {{ {"web": "a web browser", "tunnel": "an SSH tunnel ([chapter 5](#access))", "none": "not needed"}.get(x.laptop, x.laptop) }} |
+{% if rows %}
+| Credentials | {% for s in rows | unique(attribute="title") %}{{ entry(s) }}{{ ", " if not loop.last else "" }}{% endfor %} |
+{% endif %}
+| Data | {% for d in x.data %}`{{ d }}`{{ ", " if not loop.last else "" }}{% endfor %}{% if x.nodes %} on {{ x.nodes | join(", ") }}{% endif %} |
+| Backup | {{ BACKUP.get(x.backup, x.backup) }} |
+| Health check | {{ ("`" ~ x.health ~ "`") if x.health else NP }} |
+
+{% set notes = x.notes if x.name != "traefik" or not swarm else [] %}
+{% for n in notes %}
+- {{ (n | t).replace("<domain>", f.domain) | md }}
+{% endfor %}
+{% if x.name == "keycloak" and f.admin_sso == "keycloak" %}
+- The admin pages are connected to Keycloak through <https://oauth.{{ f.domain }}/>.
+{% endif %}
+{% if x.name == "traefik" and f.admin_sso %}
+- The Traefik password is not needed for the admin pages: they use the {{ LOGIN[f.admin_sso] }}.
+{% endif %}
+
+{% endfor %}
+{% if a.get("extra_apps") %}
+## Your own apps {#apps-extra}
+
+| App | What it is for | Address |
+|:-------------|:--------------------------------------|:------------------------------|
+{% for x in a.get("extra_apps") %}
+| {{ np(x.get("name")) }} | {{ np(x.get("about")) }} | {{ np(x.get("url")) }} |
+{% endfor %}
+{% endif %}
+
+# Access from your laptop {#access}
+
+This chapter shows, step by step, how to reach the system from a Windows, macOS or Linux laptop.
+
+{% include "en/laptop.md.j2" %}
+
+# Credentials and password changes {#credentials}
+
+## The credentials file {#credentials-file}
+
+Every password is in one locked file, `{{ kdbx_name }}`. It is a KeePass file. Open it with KeePassXC ([chapter 5](#access)).
+The words that open it (the *passphrase*) travelled separately{% if delivery.get("passphrase_channel") %}, by {{ delivery.get("passphrase_channel") | md }}{% endif %}{% if delivery.get("recipient") %}, to {{ delivery.get("recipient") | md }}{% endif %}. Neither this document nor the handover certificate holds a password.
+
+{% if f.state == "none" %}
+> **Important:** ansibro's `state/` folder was not found when this document was made, so the list below is incomplete and there is no credentials file yet.
+
+{% endif %}
+The file has these groups:
+
+| Group | What it holds | Who needs it |
+|:-------------------------------|:------------------------------------------|:-------------------|
+{% for g in secret_groups %}
+{% set titles = g.rows | map(attribute="title") | unique | list %}
+{% if titles or g.key in ("recovery", "internal") and (f.config_secrets or g.key == "internal") %}
+| {{ groups[g.key][first_lang] }} | {% if g.key == "internal" %}{{ titles | length }} technical passwords, plus the file "ansibro installer files" (to run ansibro again){% elif g.key == "recovery" %}{% for c in f.config_secrets %}{% set _ = titles.append("config.yml " ~ c) %}{% endfor %}{{ titles | join(", ") }}{% else %}{{ titles | join(", ") }}{% endif %} | {{ {"web": "everyone who manages the web pages", "data": "operators", "storage": "operators", "infra": "operators", "recovery": "keep safe; only to restore", "internal": "only to run ansibro again", "old": "nobody (left from removed apps)"}.get(g.key, "") }} |
+{% endif %}
+{% endfor %}
+
+## Accounts {#credentials-accounts}
+
+These are the accounts people use. The class says how to change the password (see the next section).
+
+{% set people_rows = f.secrets | selectattr("status", "equalto", "present") | selectattr("audience", "in", ["client", "recovery"]) | unique(attribute="title") | list %}
+| Account | For | Entry in the credentials file | How to change | Deadline |
+|:----------------|:-----------|:------------------------------|:----------------|:-----------|
+{% for s in people_rows %}
+| {{ s.title }} | {{ "recovery" if s.audience == "recovery" else "daily use" }} | {{ entry(s) }} | {{ CLASS[cls(s)] }}{% if not s.verified %} (not tested){% endif %} | {% if cls(s) == "internal" %}only if leaked{% elif s.audience == "recovery" %}when the vendor's access ends{% else %}within {{ days }} days{% endif %} |
+{% endfor %}
+| Passphrase of the credentials file | everyone | (the file itself) | KeePassXC | within {{ days }} days |
+
+## How to change a password {#credentials-change}
+
+ansibro keeps a copy of every password in a folder called `state/` on the computer that runs the installer. It uses that copy each time it runs. So a password must be changed in the right place, or the next install undoes it or fails.
+
+{% set classes = people_rows | map(attribute="change") | list %}
+{% set unverified = people_rows | rejectattr("verified") | list %}
+{% if "file" in classes %}
+### File first {#credentials-file-first}
+
+For: {{ people_rows | selectattr("change", "equalto", "file") | selectattr("verified") | map(attribute="title") | join(", ") or "none" }}.
+ansibro writes these passwords into the app every time it runs. A change made only in the app is undone at the next install.
+
+1. On the installer computer, put the new password in the file `state/secrets/<name>`.
+2. Run `./install.sh`.
+3. Update the credentials file, and every app of yours that uses this password.
+
+{% endif %}
+{% if "both" in classes or unverified %}
+### App and file together {#credentials-both}
+
+For: {{ (people_rows | selectattr("change", "equalto", "both") | map(attribute="title") | list + unverified | rejectattr("change", "equalto", "both") | map(attribute="title") | list) | join(", ") }}.
+ansibro logs in with these passwords, or they are needed to restore. If only one place changes, the next install fails.
+
+1. Change the password in the app.
+2. At the same time, put the same password in `state/secrets/<name>` on the installer computer.
+3. Run `./install.sh`, then the acceptance test (`tests/check.py`).
+4. Update the credentials file.
+
+{% if has("mariadb") %}
+- **MariaDB root:** the nightly backup uses it. If it changes only in MariaDB, the backup fails without a sound{% if mon == "victoria" %} until the alert BackupTooOld fires a day later{% endif %}.
+{% endif %}
+{% if f.backup.enabled %}
+- **Backup (restic):** run `sudo restic -r <repository> key passwd` on one server, then put the new password in `state/secrets/restic`, then run `./install.sh` (it rewrites `/opt/ansibro/backup/password` on every server). Keep the old password until the new one works: without it, old backups cannot be read.
+{% endif %}
+{% if unverified %}
+- {{ unverified | map(attribute="title") | join(", ") }}: how the app takes a new password was not tested, so treat {{ "it" if unverified | length == 1 else "them" }} as "app and file together".
+{% endif %}
+
+{% endif %}
+{% if "app" in classes %}
+### App first {#credentials-app-first}
+
+For: {{ people_rows | selectattr("change", "equalto", "app") | selectattr("verified") | map(attribute="title") | join(", ") or "none" }}.
+The app reads these passwords only the first time it starts. After that the app owns them.
+
+1. Change the password in the app.
+2. Put the same password in `state/secrets/<name>`, so the records and the acceptance test stay right.
+3. Update the credentials file.
+
+{% if has("authelia") %}
+- **Authelia:** the file `users.yml` on {{ f.first_manager }} is the true list of Authelia accounts.
+{% endif %}
+
+{% endif %}
+### Do not change {#credentials-internal}
+
+The passwords in the group "{{ groups["internal"][first_lang] }}" are used only between programs. No person types them. Change them only if they leaked, and let the ansibro operator do it.
+
+{% if has("garage") %}
+- **Garage:** editing the Garage key file adds a second key; the old key stays valid until it is deleted with the garage command.
+{% endif %}
+
+> **Important:** ansibro's own summary file says "change them in the app, then update the file too". That is wrong for the classes "file first" and "app and file together". Follow this chapter instead.
+
+{% if f.admin_sso %}
+## Your phone code (2FA) {#credentials-2fa}
+
+The admin login asks for a password and a code from an *authenticator app* on a phone (*2FA*, two-factor login).
+{% if f.admin_sso == "authelia" %}
+The vendor set this up during the work. Register your own phone:
+
+1. Log in at <https://authelia.{{ f.domain }}/> with the Authelia account.
+2. Choose to register a new device. Authelia has no mail server, so it writes the confirmation link to `/opt/ansibro/authelia/config/notification.txt` on {{ f.first_manager }}.
+3. An operator reads that file over SSH and gives you the link.
+4. Scan the code with your authenticator app.
+{% else %}
+The code is set up at the first login of the user admin in the Keycloak realm "ansibro". If the vendor logged in first, the vendor's phone is linked:
+
+1. Ask the vendor to remove its authenticator from the user admin in Keycloak.
+2. Log in at <https://oauth.{{ f.domain }}/> and scan the new code with your own phone.
+{% endif %}
+{% endif %}
+
+## Who keeps state/ {#credentials-state}
+
+{% if state_owner == "vendor" %}
+**{{ vendor_name }} keeps `state/`** (the installer's copy of the passwords).
+After you change a password of the class "file first" or "app and file together", send the new value to the vendor **inside a credentials file with its own passphrase**, never in an email or chat. Otherwise the next install by the vendor undoes your change ("file first") or fails ("app and file together").
+{% else %}
+**{{ client_name }} keeps `state/`.** The credentials file holds the attachment "ansibro installer files" (`config.yml` and every password file), so your own operator can run ansibro {{ f.ansibro.version or "" }} again.
+{% endif %}
+
+## Ending the vendor's access {#credentials-revoke}
+
+Planned date: {{ npdate(a.get("vendor_access_end")) }}. On that date:
+
+1. Remove the vendor's SSH key from `~/.ssh/authorized_keys` of the user `{{ f.ssh.user }}` on every server. ansibro does not manage SSH keys.
+2. Remove the vendor's addresses from `ssh.allow_from` and `admin_allow_from` in `config.yml`, then run `./install.sh`.
+3. Change the passwords as above.
+{% if f.backup.enabled %}
+4. Know that old values stay in `/opt/ansibro/backup/installer/state/secrets/` on {{ f.first_manager }} and in older backups.
+{% endif %}
+5. The vendor deletes its copy of `state/` when you agree it may.
+
+## Changing the passphrase of the credentials file {#credentials-passphrase}
+
+In KeePassXC: menu **Database → Database Security**, then set a new password. (In KeePass 2: **File → Change Master Key**.) Keep a backup copy of the file in a safe place.
+
+## Adding a staff member {#credentials-staff}
+
+{% if f.admin_sso == "authelia" %}
+- Add the person to Authelia's `users.yml` on {{ f.first_manager }}.
+{% elif f.admin_sso == "keycloak" %}
+- Add the person as a user in the Keycloak realm "ansibro".
+{% endif %}
+- Add their internet address to `admin_allow_from` (web pages) and `ssh.allow_from` (SSH, operators only) in `config.yml`, then run `./install.sh`.
+- For operators: add their SSH public key to `~/.ssh/authorized_keys` of `{{ f.ssh.user }}` on every server.
+
+# Backup and restore {#backup}
+
+A *backup* is a copy of the data kept somewhere else, so it can be put back (*restored*) after a loss.
+
+{% if f.backup.enabled %}
+## Settings {#backup-settings}
+
+| Setting | Value |
+|:--------------------|:---------------------------------------------------|
+| Backup | On, with *restic* (a backup program) on every server |
+| Where | {{ f.backup.kind }}: `{{ f.backup.where }}` |
+| When | Every night at {{ f.backup.time }} ({{ f.timezone }}). A missed run starts at the next boot |
+| Kept | {{ f.backup.keep.daily }} daily, {{ f.backup.keep.weekly }} weekly and {{ f.backup.keep.monthly }} monthly *snapshots* per server |
+| Password | `{{ groups["recovery"][first_lang] }}/Backup (restic)` in the credentials file |
+
+A *snapshot* is one complete backup at one moment.
+
+## What is saved {#backup-what}
+
+| App | How | Meaning |
+|:-----------|:---------------------|:------------------------------------------------|
+{% for x in f.apps %}
+| {{ NAME.get(x.name, x.name) }} | {{ BACKUP.get(x.backup, x.backup) }} | {{ {"dump": "a full export of the databases", "paused": "the app is paused for a moment and its folder copied", "live": "copied while it runs; not guaranteed to be consistent", "partial": "only some folders are saved (see the app's notes)", "none": "nothing is saved"}.get(x.backup, "") }} |
+{% endfor %}
+| Image registry | Not saved | images are pulled again |
+{% if patroni %}
+| etcd | Not saved | it is rebuilt |
+{% endif %}
+| {{ f.first_manager }} | Extra | the {{ "Swarm state" if swarm else "k3s snapshot" }}, `config.yml` and the password files |
+
+Not saved: Docker volumes, and your own apps unless their files are in `/opt/ansibro/<name>/`.
+
+## How to check {#backup-check}
+
+On any server, after SSH:
+
+```sh
+sudo ansibro-backup snapshots
+systemctl is-active ansibro-backup.timer
+journalctl -u ansibro-backup
+```
+
+`sudo ansibro-backup` makes a backup now.
+{% if mon == "victoria" %}
+The alert **BackupTooOld** fires when a server has had no good backup for 26 hours.
+{% else %}
+
+> **Important:** there is no alert when the backup fails, because the alert needs the Victoria monitoring. Check the backups by hand every week.
+{% endif %}
+
+## Restoring everything {#backup-restore}
+
+ansibro restores the whole system at once, onto new servers.
+
+1. Make new, empty servers (Ubuntu 24.04 or 26.04) with **the same names and the same cluster IPs**{% if f.wireguard %}; with WireGuard only the SSH address may change{% endif %}.
+2. Keep the same `backup:` settings in `config.yml`, and the same `state/`.
+3. Run:
+
+   ```sh
+   ./install.sh -e restore=true
+   ```
+
+4. Each server gets its newest snapshot back, then the apps start. Run `tests/check.py` to check.
+
+**If `state/` is lost too,** get it back from the backup of {{ f.first_manager }} first. You need the restic password and the storage credentials from the credentials file:
+
+```sh
+restic -r <repository> restore latest --host {{ f.first_manager }} \
+  --include /opt/ansibro/backup/stage/installer --target .
+```
+
+Not supported: restoring one app, one database, or an earlier point in time, and restoring onto a running cluster.
+
+Last restore drill (a test restore): {{ a.get("restore_drill") | date if a.get("restore_drill") else "**never**" }}.
+{% if not a.get("restore_drill") %}
+
+> **Important:** a backup that was never restored is not proven. Plan a restore drill on spare servers.
+{% endif %}
+{% else %}
+> **Important:** **there is no backup.** If a server breaks, its data is lost for good. Recommended: add a `backup:` section to `config.yml` with a storage place outside these servers, then run `./install.sh`.
+{% endif %}
+
+# Monitoring and alerts {#monitoring}
+
+*Monitoring* watches the servers and apps. An *alert* is a message sent when something is wrong.
+
+{% if mon == "victoria" %}
+## The monitoring system {#monitoring-tool}
+
+The Victoria monitoring runs on {{ runs_on(app["victoria"]) }}. It keeps metrics and logs for {{ f.monitoring.keep_days }} days.
+
+| Page | Address |
+|:----------------------|:-------------------------------------------------|
+{% for w in app["victoria"].web %}
+| {{ {"grafana": "Grafana (dashboards)", "alertmanager": "Alertmanager (alerts, silences)", "metrics": "Metrics", "logs": "Logs"}.get(w.host, w.host) }} | <{{ w.url }}> |
+{% endfor %}
+
+Alerts go to:
+{% for c in f.monitoring.channels %}
+**{{ c.kind }}**{% if c.get("to") %} ({{ c.to }}){% endif %}{% if c.get("host") %} via `{{ c.host }}`{% endif %}{{ ", " if not loop.last else "." }}
+{% else %}
+*no channel*.
+{% endfor %}
+Warnings and critical alerts go to the same place. An alert repeats every 4 hours while it lasts.
+
+{% if not f.monitoring.channels %}
+> **Important:** no alert channel is set, so alerts reach nobody. Add one under `monitoring:` in `config.yml`.
+
+{% endif %}
+**Who watches the monitoring server?**
+{% if f.monitoring.uptimekuma %}
+Uptime Kuma, on another server, checks that the monitoring server is alive.
+{% endif %}
+{% if f.monitoring.heartbeat %}
+A heartbeat service at `{{ f.monitoring.heartbeat }}` expects a signal every few minutes.
+{% endif %}
+{% if not f.monitoring.uptimekuma and not f.monitoring.heartbeat %}
+
+> **Important:** nothing watches the monitoring server. If it stops, no alert is sent. Add Uptime Kuma on another server, or a heartbeat service.
+{% endif %}
+
+**Silencing:** to stop an alert for a while (for example during planned work), open Alertmanager and create a *silence*.
+
+## Alert rules {#monitoring-rules}
+
+{{ alerts | length }} rules apply to this system. *Critical* means act now; *warning* means look soon. The alert texts arrive in English.
+
+{% for group, rules in alerts | groupby("group") %}
+| {{ group | capitalize }} alerts | Level | What it means |
+|:-------------------------|:---------|:------------------------------------------------|
+{% for r in rules %}
+| {{ r.name }} | {{ r.severity }} | {{ CRITICAL[r.name] if r.name in CRITICAL else (r.summary | md) }} |
+{% endfor %}
+
+{% endfor %}
+{% elif mon == "beszel" %}
+## The monitoring system {#monitoring-tool}
+
+Beszel shows CPU, memory, disk and containers of every server at <{{ app["beszel"].web[0].url }}>. It keeps no logs.
+
+> **Important:** Beszel sends no alert until you set alerts up in its own page. Do this during the handover, and test it.
+
+{% else %}
+> **Important:** **you receive no alerts.** No monitoring app is installed, so nobody is told when a server or app breaks.
+
+{% endif %}
+{% if has("uptimekuma") %}
+## Uptime Kuma {#monitoring-uptimekuma}
+
+Uptime Kuma at <{{ app["uptimekuma"].web[0].url }}> checks every minute that the web pages answer. Its checks were made at the first install.
+
+> **Important:** Uptime Kuma sends no notification until you add one in its Settings (email, Telegram and so on). Do this during the handover, and test it.
+
+{% endif %}
+# Operations runbook {#runbook}
+
+## Golden rules {#runbook-rules}
+
+1. **Every change goes through `config.yml`,** then `./install.sh`. It changes only what differs, and it is safe to run again after a failure.
+2. **Always run it from the computer that has `state/`.** Elsewhere it makes new passwords that do not match the running system.
+3. `--check` (a dry run) is not supported.
+
+**Who can run the installer:** a macOS or Linux computer with Python 3.12 or newer, ansibro {{ f.ansibro.version or "(same version)" }}, `config.yml` and `state/`. Today that is {{ vendor_name if state_owner == "vendor" else client_name }}.
+
+## Procedures {#runbook-procedures}
+
+All commands on a server run after SSH (see [chapter 5](#access)). `/opt/ansibro` belongs to root, so they use `sudo`.
+
+### Add or remove an app {#runbook-app}
+
+- **Add:** add it under `apps:` in `config.yml`, then run `./install.sh`.
+- **Remove:** remove it from `config.yml`, then run `./install.sh`. The app stops; its data stays in `/opt/ansibro/<app>` until you delete it with `sudo rm -rf`.
+- **Check:** `tests/check.py`.
+
+### Add or remove a server {#runbook-server}
+
+- **Add:** add it to `nodes:` **after** {{ f.first_manager }}, then run `./install.sh`.
+- **Remove:** move its apps away first, remove it from `config.yml`, then run:
+
+  ```sh
+  ./install.sh -e remove_nodes=true
+  ```
+
+- **Never remove {{ f.first_manager }}.**
+
+{% if swarm %}
+### Promote or demote a server {#runbook-promote}
+
+On {{ f.first_manager }}: `sudo docker node promote <name>` (worker to manager) or `sudo docker node demote <name>`.
+
+{% endif %}
+{% if patroni %}
+### Change the managers when PostgreSQL uses Patroni {#runbook-patroni}
+
+On every manager, stop and wipe etcd, then run `./install.sh`. The database takes no writes for about 60 seconds.
+
+```sh
+cd /opt/ansibro/etcd && sudo docker compose down && sudo rm -rf data managers
+```
+
+{% endif %}
+### Upgrade an app or Docker {#runbook-upgrade}
+
+1. In `versions.yml`, change the app's tag **and** digest. Read the digest with `docker buildx imagetools inspect <image>:<tag>`.
+2. Run `./install.sh`. Docker is upgraded one server at a time.
+{% if has("postgres") %}
+3. A major PostgreSQL upgrade (for example 18 to 19) needs a manual dump and restore.
+{% endif %}
+
+{% if f.tls == "letsencrypt" and swarm %}
+### Get the Let's Encrypt certificates again {#runbook-certs}
+
+DNS must be right and port 80 open. On {{ f.first_manager }}:
+
+```sh
+sudo docker service update --force traefik_traefik
+```
+
+{% endif %}
+### Restart an app {#runbook-restart}
+
+{% if swarm %}
+- A cluster app: `sudo docker service update --force <stack>_<service>` on {{ f.first_manager }}. See the services with `sudo docker service ls`.
+{% else %}
+- A cluster app: see the state with `sudo k3s kubectl get pods -A` on {{ f.first_manager }}.
+{% endif %}
+- An app on a fixed server: `cd /opt/ansibro/<app> && sudo docker compose restart` on that server.
+
+### After a server restarts {#runbook-reboot}
+
+- The apps start by themselves. A missed backup runs at boot.
+{% if has("openbao") %}
+- **OpenBao starts locked (sealed).** Unseal it in its web page with the unseal key from the credentials file, or run `./install.sh`.
+{% endif %}
+
+### Locked out of SSH {#runbook-locked}
+
+Open the server's console in the provider's web page, log in, and run `sudo ufw disable`. Then fix `ssh.allow_from` and run `./install.sh` (it turns the firewall back on).
+
+{% if galera %}
+### All MariaDB servers stopped {#runbook-galera}
+
+If all three MariaDB servers stop at once, the Galera cluster must be started again by hand, following the MariaDB documentation ("bootstrap").
+
+{% endif %}
+### Docker Hub limit (toomanyrequests) {#runbook-dockerhub}
+
+Wait, or log in to Docker Hub with `sudo docker login` on {{ f.first_manager }}.
+
+{% if swarm %}
+### Server labels {#runbook-labels}
+
+ansibro only adds labels. Remove one with `sudo docker node update --label-rm <label> <name>`.
+
+{% endif %}
+{% if f.offline %}
+### Time without internet {#runbook-ntp}
+
+Put a local time server in `/etc/chrony/sources.d/local.sources` on every server.
+
+{% endif %}
+{% if mon == "victoria" %}
+## Incident playbooks {#runbook-incidents}
+
+What to do when a critical alert arrives. First check, then fix, then escalate to support ([chapter 11](#support)) if it is not solved within an hour.
+
+{% if "NodeDown" in alert_names %}
+### NodeDown {#incident-nodedown}
+
+- **Means:** a server is off or cannot be reached.
+- **Check:** the server's state in the provider's web page; then try SSH.
+- **Fix:** start the server. When it is back, the apps return by themselves{% if has("openbao") %}; unseal OpenBao if it runs there{% endif %}.
+- **Escalate:** when the server does not start.
+
+{% endif %}
+{% if "DiskFull" in alert_names %}
+### DiskFull {#incident-diskfull}
+
+- **Means:** a disk is more than 95% full.
+- **Check:** `df -h` on that server.
+- **Fix:** delete old files you do not need, or make the disk larger at the provider.
+- **Escalate:** when you do not know what fills it.
+
+{% endif %}
+{% if "AppDown" in alert_names or "ContainerDown" in alert_names %}
+### AppDown and ContainerDown {#incident-appdown}
+
+- **Means:** an app does not answer, or its container stopped.
+- **Check:** `sudo docker ps` and `sudo docker logs <app>` on that server.
+- **Fix:** `cd /opt/ansibro/<app> && sudo docker compose restart`.
+- **Escalate:** when it stops again.
+
+{% endif %}
+{% if "SwarmServiceDown" in alert_names %}
+### SwarmServiceDown {#incident-servicedown}
+
+- **Means:** a cluster app runs fewer copies than it should.
+- **Check:** `sudo docker service ps <service>` and `sudo docker service logs <stack>_<service>` on {{ f.first_manager }}.
+- **Fix:** `sudo docker service update --force <stack>_<service>`.
+- **Escalate:** when the copies do not come back.
+
+{% endif %}
+{% if "K3sDeploymentDown" in alert_names %}
+### K3sDeploymentDown {#incident-servicedown}
+
+- **Means:** a cluster app runs fewer copies than it should.
+- **Check:** `sudo k3s kubectl get pods -A` and `sudo k3s kubectl get nodes` on {{ f.first_manager }}.
+- **Fix:** look at the stuck pod's server first; a stopped server is the usual cause.
+- **Escalate:** when the copies do not come back.
+
+{% endif %}
+{% if "PostgresNoPrimary" in alert_names and patroni %}
+### PostgresNoPrimary {#incident-postgres}
+
+- **Means:** no PostgreSQL server accepts writes. Apps cannot save data.
+- **Check:** `sudo docker exec postgres patronictl list` on a database server.
+- **Fix:** make sure etcd runs on the managers and the database servers are up.
+- **Escalate:** right away.
+
+{% endif %}
+{% if "MariadbClusterSmall" in alert_names and galera %}
+### MariadbClusterSmall {#incident-mariadb}
+
+- **Means:** fewer than 3 MariaDB servers are in the Galera cluster.
+- **Check:** which MariaDB server is down (`sudo docker ps` on each).
+- **Fix:** start the stopped server. If all three stopped, see [All MariaDB servers stopped](#runbook-galera).
+- **Escalate:** when only one server is left.
+
+{% endif %}
+{% if "CacheNoPrimary" in alert_names and f.cache and f.cache.ha %}
+### CacheNoPrimary {#incident-cache}
+
+- **Means:** no cache server accepts writes.
+- **Check:** `sudo docker exec valkey-sentinel valkey-cli -p 26379 SENTINEL masters`{% if f.cache.app == "redis" %} (with Redis the names are `redis-sentinel` and `redis-cli`){% endif %}.
+- **Fix:** start the stopped cache servers; Sentinel picks a new primary.
+- **Escalate:** right away.
+
+{% endif %}
+{% if "OpenBaoSealed" in alert_names %}
+### OpenBaoSealed {#incident-openbao}
+
+- **Means:** OpenBao is locked after a restart. Its health check stays green.
+- **Check:** open <https://openbao.{{ f.domain }}/ui/>.
+- **Fix:** unseal it with the key `{{ groups["recovery"][first_lang] }}/OpenBao unseal key`, or run `./install.sh`.
+- **Escalate:** when the key does not work.
+
+{% endif %}
+{% if "BackupTooOld" in alert_names %}
+### BackupTooOld {#incident-backup}
+
+- **Means:** a server has had no good backup for 26 hours.
+- **Check:** `journalctl -u ansibro-backup` and `systemctl is-active ansibro-backup.timer` on that server.
+- **Fix:** solve the error in the log, then run `sudo ansibro-backup`.
+- **Escalate:** when the backup storage is unreachable or full.
+
+{% endif %}
+{% if "CertificateEndsSoon" in alert_names %}
+### CertificateEndsSoon {#incident-cert}
+
+- **Means:** a web certificate ends within 14 days.
+- **Check:** the date in the browser's lock icon.
+{% if f.tls == "letsencrypt" and swarm %}
+- **Fix:** check DNS and port 80, then `sudo docker service update --force traefik_traefik`.
+{% elif f.tls == "letsencrypt" %}
+- **Fix:** check that DNS points at {{ f.traefik_nodes | join(", ") }} and that port 80 is open.
+{% else %}
+- **Fix:** replace the certificate and key files, then run `./install.sh`.
+{% endif %}
+- **Escalate:** a week before it ends.
+
+{% endif %}
+{% if "WireGuardPeerDown" in alert_names %}
+### WireGuardPeerDown {#incident-wireguard}
+
+- **Means:** two servers cannot talk over WireGuard.
+- **Check:** `sudo wg show` on both servers.
+- **Fix:** check that UDP port {{ f.wireguard_port }} is open between them and both are up.
+- **Escalate:** when the link stays down.
+
+{% endif %}
+{% endif %}
+## What ansibro does not do {#runbook-not}
+
+| Task | Recommended owner |
+|:------------------------------------|:------------------------------------------|
+| Security updates of the operating system | {{ client_name }}'s operator, or support |
+| Upgrading ansibro itself | whoever keeps `state/` ({{ vendor_name if state_owner == "vendor" else client_name }}) |
+| Renewing the registry certificate (valid 10 years from the first install) | whoever keeps `state/` |
+| Adding and removing SSH keys | {{ client_name }}'s operator |
+
+# Security {#security}
+
+## What is open to the internet {#security-exposure}
+
+{% set public = web | selectattr("guard", "equalto", "public") | list %}
+{% if public %}
+These pages are open to anyone. Each has its own login, or is meant to be public:
+
+{% for w in public %}
+- <{{ w.url }}>{% if w.login == "none" %} (no login: your APIs){% endif %}
+
+{% endfor %}
+
+{% else %}
+No web page is open to anyone without a login.
+{% endif %}
+
+Who can reach the rest:
+
+- SSH: {{ anyone(f.ssh.allow_from) }}.
+- Admin pages: {{ anyone(f.admin_allow_from) }}.
+
+## Traffic inside the cluster {#security-plaintext}
+
+{% set plain = f.apps | selectattr("ports") | list %}
+{% if plain %}
+These services talk without encryption, so they are open only to the cluster servers: {% for x in plain %}{{ NAME.get(x.name, x.name) }}{{ ", " if not loop.last else "." }}{% endfor %}
+
+{% if f.wireguard %}
+WireGuard encrypts this traffic between the servers.
+{% endif %}
+{% endif %}
+{% if mon == "victoria" %}
+Inside the cluster, the monitoring ports (8428, 9428, 8880, 9093 and 3000) have no login.
+{% endif %}
+
+## Copies of the passwords on the servers {#security-copies}
+
+The servers hold copies of the passwords, readable by root only:
+
+{% if f.backup.enabled %}
+- `/opt/ansibro/backup/installer/state/secrets/` on {{ f.first_manager }}: **every password**, refreshed on each install, and inside every backup of {{ f.first_manager }}.
+- `/opt/ansibro/backup/password` on every server: the backup password.
+{% endif %}
+- `.env` files in `/opt/ansibro/<app>/` of the apps that use them.
+{% if has("portainer") %}
+- `/opt/ansibro/portainer/admin_password`.
+{% endif %}
+{% if has("authelia") %}
+- `/opt/ansibro/authelia/config/` (configuration, users and notifications).
+{% endif %}
+- `/root/.docker/config.json` (the registry login).
+
+So anyone with root on {{ f.first_manager }}{% if f.backup.enabled %}, or with the backup password and storage{% endif %}, has every password.
+On the installer computer, `state/` is {% if f.state == "age" %}**encrypted** (state.age){% elif f.state == "plain" %}**not encrypted**. Recommended: turn on ansibro's encryption (age){% else %}not present{% endif %}.
+
+## SSH keys {#security-ssh}
+
+An *SSH key* is a pair of files that lets a person log in without a password. ansibro does not add or remove SSH keys. Who may log in is the list in `~/.ssh/authorized_keys` of `{{ f.ssh.user }}` on each server; keep it short and remove keys of people who leave.
+
+{% set agpl = [] %}
+{% for x in f.apps if "AGPL" in x.license %}{% set _ = agpl.append(NAME.get(x.name, x.name)) %}{% endfor %}
+{% if agpl %}
+## Licenses to note {#security-agpl}
+
+{{ agpl | join(", ") }} {{ "uses" if agpl | length == 1 else "use" }} the AGPL license{% if has("victoria") %} (for Victoria: Grafana){% endif %}. Using them is free. If you change their code and offer it over a network, you must publish your changes. See [Appendix B](#appendix-licenses).
+
+{% endif %}
+## Certificate dates {#security-certs}
+
+| Certificate | Ends |
+|:------------------------------|:------------------------------------------|
+{% if f.tls == "letsencrypt" %}
+| Web pages (Let's Encrypt) | renewed automatically |
+{% elif f.tls == "custom" %}
+| Web pages (custom) | {{ f.tls_cert.not_after if f.tls_cert else "*Not checked*" }} |
+{% else %}
+| Web pages (self-signed) | made again at each start |
+{% endif %}
+| Image registry (internal) | 10 years after the first install |
+
+# Support {#support}
+
+{% if support.get("contacts") %}
+Call or write to these people, in this order:
+
+| Name | Role | Phone | Email |
+|:-------------------|:-------------------|:-------------------|:------------------------------|
+{% for c in support.get("contacts") %}
+| {{ np(c.get("name")) }} | {{ np(c.get("role")) }} | {{ np(c.get("phone")) }} | {{ np(c.get("email")) }} |
+{% endfor %}
+{% else %}
+Contacts: {{ NP }}.
+{% endif %}
+
+| Item | Detail |
+|:--------------------|:---------------------------------------------------|
+| Company | {{ np(vendor.get("name")) }} |
+| Phone | {{ np(vendor.get("phone")) }} |
+| Email | {{ np(vendor.get("email")) }} |
+| Website | {{ np(vendor.get("website")) }} |
+| Hours | {{ np(support.get("hours")) }} |
+| Response time | {{ np(support.get("sla")) }} |
+| Warranty | {% if warranty.get("months") %}{{ warranty.get("months") }} months{% else %}{{ NP }}{% endif %}{% if warranty.get("until") %}, until {{ warranty.get("until") | date }}{% endif %} |
+| Warranty covers | {{ np(warranty.get("scope")) }} |
+{% if bast.get("stage") == "pho" %}
+| Final handover | {{ npdate(bast.get("fho_date")) }} |
+{% endif %}
+| Vendor access ends | {{ npdate(a.get("vendor_access_end")) }} |
+
+**How to report a problem.** Say what you saw, when it started, which page or server, and what you already tried. A screenshot helps.
+
+> **Important:** never send a password in a report, email or chat. Support never asks for one.
+
+# Acceptance test {#acceptance}
+
+ansibro has its own *acceptance test* (`tests/check.py`). It logs in to every app and checks the cluster, the backups and the monitoring.
+
+{% if check %}
+| Item | Detail |
+|:--------------------------|:---------------------------------------------|
+| Date | {{ check.date or NP }} |
+| Passed | {{ check.passed }} |
+| Failed | {{ check.failed }} |
+| Skipped | {{ check.skipped }} |
+
+{% if check.stale %}
+> **Important:** the test ran before the last install ({{ f.last_install }}). Run it again.
+
+{% endif %}
+{% if check.failed %}
+> **Important:** {{ check.failed }} check{{ "s" if check.failed != 1 else "" }} failed. See the table.
+
+{% endif %}
+| Result | Check |
+|:---------|:--------------------------------------------------------------|
+{% for r in check.rows %}
+| {{ "**FAIL**" if r.result == "FAIL" else r.result }} | {{ r.text | md }} |
+{% endfor %}
+
+{% if check.web %}
+Each web page was also opened from outside on the same day:
+
+| Address | DNS answer | Certificate ends | Status |
+|:------------------------------------|:-------------------|:-------------|:-----------------|
+{% for w in check.web %}
+| <{{ w.url }}> | {{ w.dns | join(", ") if w.dns else "*no answer*" }} | {{ w.not_after or "" }} | {% if w.status %}{{ w.status }}{% elif w.get("error") %}**error** ({{ w.get("error") }}){% else %}*no answer*{% endif %} |
+{% endfor %}
+
+HTTP status 200 means the page opened; 302, 401 or 403 means it asks for a login or the address is not on the allow-list. These are normal for admin pages.
+{% if f.tls == "selfsigned" %}
+The certificate is Traefik's own (self-signed), as described in [chapter 3](#servers-tls).
+{% endif %}
+{% endif %}
+{% else %}
+The acceptance test was **not run** for this document, so no result is recorded. Run it before signing the handover certificate.
+{% endif %}
+
+The handover certificate has a checklist for the handover session (its first attachment): every web page opens, every login works, 2FA is enrolled, the credentials file opens, laptop access works, a recent backup exists, a test alert arrives{% if has("openbao") %}, and the client holds the OpenBao unseal key{% endif %}.
+
+# Appendix A. Software versions {#appendix-versions .unnumbered}
+
+| App | Image | Tag | Digest |
+|:-----------|:--------------------------------------|:-----------------|:-------------|
+{% for x in f.apps %}
+{% for i in x.images %}
+| {{ NAME.get(x.name, x.name) if loop.first else "" }} | `{{ i.repo }}` | {{ i.tag }} | `{{ i.digest }}` |
+{% else %}
+| {{ NAME.get(x.name, x.name) }} | {{ x.version or "" }} | | |
+{% endfor %}
+{% endfor %}
+
+| Component | Version |
+|:--------------------|:---------------------------------------------------|
+{% for c in f.components if c.version and c.name != "k3s" %}
+| {{ c.name }} | {{ c.version }} |
+{% endfor %}
+{% for d in f.versions.docker %}
+| {{ d.split(" ")[0] }} | {{ d.split(" ")[1:] | join(" ") }} |
+{% endfor %}
+{% if f.versions.k3s %}
+| k3s | {{ f.versions.k3s }} |
+{% endif %}
+| ansibro | {{ f.ansibro.version or f.ansibro.describe or NP }} |
+| dejavu | {{ dejavu }} |
+
+The digest is the first 12 characters of the image's fingerprint (sha256). It pins the exact image.
+
+# Appendix B. Licenses {#appendix-licenses .unnumbered}
+
+All parts are open source.
+
+| Part | License |
+|:-----------------|:------------------------------------------------------|
+{% for x in f.apps %}
+| {{ NAME.get(x.name, x.name) }} | {{ x.license | md }} |
+{% endfor %}
+{% for c in f.components if c.license %}
+| {{ c.name }} | {{ c.license }} |
+{% endfor %}
+
+# Appendix C. Configuration {#appendix-config .unnumbered}
+
+This is `config.yml` as ansibro read it, rebuilt by dejavu. The comments of the original are lost, some values are defaults, and each secret is replaced by its place in the credentials file.
+
+{% set REC = groups["recovery"][first_lang] ~ "/config.yml " %}
+```yaml
+domain: {{ f.domain }}
+orchestrator: {{ f.orchestrator }}
+tls: {{ f.tls }}
+{% if f.acme_email %}
+acme_email: {{ f.acme_email }}
+{% endif %}
+{% if f.acme_server %}
+acme_server: https://{{ f.acme_server }}/...   # only the host is recorded
+{% endif %}
+{% if f.tls == "custom" %}
+tls_cert: <file>   # the certificate file
+tls_key: <file>    # the key file, not in this document
+{% endif %}
+timezone: {{ f.timezone }}
+{% if f.offline %}
+offline: true
+{% endif %}
+ssh:
+  user: {{ f.ssh.user }}
+  port: {{ f.ssh.port }}
+  key: <your SSH private key>
+{% if f.ssh.allow_from %}
+  allow_from: [{{ f.ssh.allow_from | join(", ") }}]
+{% endif %}
+{% if f.admin_allow_from %}
+admin_allow_from: [{{ f.admin_allow_from | join(", ") }}]
+{% endif %}
+{% if f.firewall_allow %}
+firewall_allow:
+{% for r in f.firewall_allow %}
+  - {{ "{" }}{% for k, v in r.items() %}{{ k }}: {{ v }}{{ ", " if not loop.last else "" }}{% endfor %}{{ "}" }}
+{% endfor %}
+{% endif %}
+{% if f.wireguard %}
+wireguard: true
+{% if f.wireguard_port != 51820 %}
+wireguard_port: {{ f.wireguard_port }}
+{% endif %}
+{% endif %}
+nodes:
+{% for n in f.nodes %}
+  - {name: {{ n.name }}, ip: {{ n.ip }}, host: {{ n.host }}, role: {{ n.role }}}
+{% endfor %}
+apps:
+{% for x in f.apps %}
+  {{ x.name }}: {% if x.cluster %}{{ "swarm" if swarm else "cluster" }}{% elif x.nodes | length == 1 %}{{ x.nodes[0] }}{% else %}[{{ x.nodes | join(", ") }}]{% endif %}
+
+{% endfor %}
+{% if mon == "victoria" %}
+monitoring:
+{% for c in f.monitoring.channels %}
+{% if c.kind == "telegram" %}
+  telegram:
+    bot_token: <kdbx: {{ REC }}monitoring.telegram.bot_token>
+    chat_id: <not recorded>
+{% elif c.kind == "email" %}
+  email:
+    to: {{ c.to }}
+    smarthost: {{ c.host }}:<port>
+{% if "monitoring.email.password" in f.config_secrets %}
+    password: <kdbx: {{ REC }}monitoring.email.password>
+{% endif %}
+{% else %}
+  webhook: <kdbx: {{ REC }}monitoring.webhook>
+{% endif %}
+{% endfor %}
+{% if f.monitoring.heartbeat %}
+  heartbeat_url: <kdbx: {{ REC }}monitoring.heartbeat_url>
+{% endif %}
+  keep_days: {{ f.monitoring.keep_days }}
+{% endif %}
+{% if f.backup.enabled %}
+backup:
+{% if "backup.repository" in f.config_secrets %}
+  repository: <kdbx: {{ REC }}backup.repository>
+{% else %}
+  repository: {{ f.backup.where if f.backup.kind == "local" else f.backup.kind ~ ":" ~ f.backup.where }}
+{% endif %}
+{% if "backup.s3_access_key" in f.config_secrets %}
+  s3_access_key: <kdbx: {{ REC }}backup.s3_access_key>
+  s3_secret_key: <kdbx: {{ REC }}backup.s3_secret_key>
+{% endif %}
+  time: "{{ f.backup.time }}"
+  keep_daily: {{ f.backup.keep.daily }}
+  keep_weekly: {{ f.backup.keep.weekly }}
+  keep_monthly: {{ f.backup.keep.monthly }}
+{% endif %}
+```
+
+# Appendix D. SSH settings {#appendix-ssh .unnumbered}
+
+These lines go into the SSH settings file of a laptop (`~/.ssh/config`; on Windows `%USERPROFILE%\.ssh\config`). The same lines are in the file `ssh_config.txt`.
+
+```text
+{% include "ssh_config.txt.j2" %}
+```
+
+# Appendix E. Password-change checklist {#appendix-passwords .unnumbered}
+
+Tick each password when it is changed, within {{ days }} days of the handover. [Chapter 6](#credentials) says how.
+
+| Done | Account | Entry in the credentials file | Changed on | By |
+|:----|:-------------------|:------------------------------|:-------------|:-------------|
+{% for s in people_rows if cls(s) != "internal" %}
+| `☐` | {{ s.title }} | {{ entry(s) }} | | |
+{% endfor %}
+| `☐` | Passphrase of the credentials file | | | |
+
+# Appendix F. Known issues and recommendations {#appendix-issues .unnumbered}
+
+{% if not f.warnings and not a.get("known_issues") %}
+No known issues.
+{% endif %}
+{% for w in f.warnings %}
+{% if w.id == "not-documented" %}
+- **A setting dejavu does not know (`{{ w.key }}`).** `config.yml` has a setting that this document does not describe. Check what it does with the vendor.
+{% elif w.id == "unknown-app" %}
+- **An app dejavu does not know ({{ w.app }}).** It is installed, but this document has no details about its pages, backup or passwords. Check them with the vendor.
+{% elif w.id == "missing-secret" %}
+- **A password file is missing (`{{ w.name }}`).** ansibro should have made it. Run `./install.sh` again, then rebuild these documents.
+{% elif w.id == "stale-secret" %}
+- **A password of a removed app (`{{ w.name }}`).** It is kept in the group "{{ groups["old"][first_lang] }}" of the credentials file, so nothing is lost. It can be deleted when you agree.
+{% elif w.id == "unknown-secret" %}
+- **A password file dejavu does not know (`{{ w.name }}`).** It is kept in the group "{{ groups["internal"][first_lang] }}". Ask the vendor what it is for.
+{% elif w.id == "custom-cert-expires" %}
+- **The web certificate ends soon ({{ w.days }} days).** Replace it, then run `./install.sh`.
+{% elif w.id == "allowlist-empty" %}
+- **The allow-list `{{ w.list }}` is empty.** {{ "SSH" if w.list == "ssh.allow_from" else "The admin pages" }} can be reached from any internet address. Recommended: list your office and staff addresses.
+{% elif w.id == "tls-selfsigned" %}
+- **Self-signed certificate.** Browsers warn on every page. Recommended: a certificate from your company's certificate authority (`tls: custom`).
+{% elif w.id == "no-backup" %}
+- **No backup.** A lost server means lost data. Recommended: add a backup to a storage place outside these servers.
+{% elif w.id == "backup-no-alert" %}
+- **No alert when the backup fails.** The backup alert needs the Victoria monitoring. Check the backups by hand every week.
+{% elif w.id == "no-monitoring" %}
+- **No monitoring.** You receive no alerts. Recommended: install Beszel or the Victoria monitoring.
+{% elif w.id == "uptimekuma-notifications-manual" %}
+- **Uptime Kuma notifications.** They must be added by hand in Uptime Kuma's Settings, then tested.
+{% elif w.id == "beszel-alerts-manual" %}
+- **Beszel alerts.** They must be set up by hand in Beszel's page, then tested.
+{% elif w.id == "swarmpit-old-databases" %}
+- **Swarmpit uses old databases** (CouchDB 2.3 and InfluxDB 1.8). This is a known risk. Consider Portainer instead.
+{% elif w.id == "ansibro-untested-version" %}
+- **ansibro {{ w.version }} was not tested with this dejavu** (tested: {{ w.tested }}). Check the documents with extra care.
+{% elif w.id == "ansibro-dirty" %}
+- **The ansibro copy had local changes.** The system may differ from the published ansibro version. Ask the vendor for the changes.
+{% elif w.id == "shared-state" %}
+- **Several configurations share one `state/`** ({{ w.configs | join(", ") }}). The credentials file may then hold passwords of other systems. Check it with the vendor.
+{% else %}
+- **{{ w.id }}.** {% for k, v in w.items() if k != "id" %}{{ k }}: {{ v | md }}{{ "; " if not loop.last else "" }}{% endfor %}
+{% endif %}
+{% endfor %}
+{% for x in a.get("known_issues") or [] %}
+- {{ x | md }}
+{% endfor %}
+
+# Appendix G. Data sources {#appendix-sources .unnumbered}
+
+Every fact in this document comes from one of these places. dejavu never opened a password file.
+
+| Facts | Source |
+|:------------------------------------------|:------------------------------------------|
+{% for what, where in f.sources.items() %}
+| {{ what }} | {{ where }} |
+{% endfor %}
+| names, dates, contacts, scope, notes | the answers of the vendor (`handover.yml`) |
+{% if check %}
+| acceptance test | `tests/check.py`, run on {{ check.date or NP }} |
+{% endif %}
+
+# Appendix H. Glossary {#appendix-glossary .unnumbered}
+
+| Word | Meaning |
+|:-----------------|:----------------------------------------------------------------|
+| 2FA | Two-factor login: a password plus a code from an app on your phone. |
+| Alert | A message sent when something is wrong. |
+| Allow-list | A list of internet addresses that may connect. Empty means anyone. |
+| ansibro | The installer that set up this system. |
+| Authenticator app | A phone app that shows a new 6-digit code every 30 seconds. |
+| Backup | A copy of the data kept somewhere else. |
+| Certificate | A file that proves a web page is genuine and encrypts the connection. |
+| Cluster | A group of servers that work as one. |
+| Container | An app packed with everything it needs, so it runs the same everywhere. |
+| Credentials file | The locked KeePass file (`.kdbx`) that holds every password. |
+| DNS | The internet's address book: it turns a name into a server's address. |
+{% if swarm %}
+| Docker Swarm | The program that runs the containers across the cluster. |
+{% endif %}
+| Firewall | A filter that decides which connections may reach a server. |
+{% if galera %}
+| Galera | The way MariaDB keeps three servers in sync. |
+{% endif %}
+| High availability | A part keeps working when one server stops. |
+| Image | The packed form of an app, from which containers start. |
+{% if not swarm %}
+| k3s | A small edition of Kubernetes that runs the containers across the cluster. |
+{% endif %}
+| KeePassXC | A free program that opens the credentials file. |
+| Manager | A server that steers the cluster. |
+| Passphrase | The words that open the credentials file. |
+{% if patroni %}
+| Patroni | The program that picks a new PostgreSQL primary when one stops. |
+{% endif %}
+| Port | A numbered door on a server for one kind of connection. |
+{% if f.database and f.database.ha or f.cache and f.cache.ha %}
+| Primary | The one server of a group that accepts writes; the others keep copies. |
+{% endif %}
+| restic | The backup program. |
+| Restore | Putting the data back from a backup. |
+{% if f.cache and f.cache.ha %}
+| Sentinel | The program that picks a new cache primary when one stops. |
+{% endif %}
+| Snapshot | One complete backup at one moment. |
+| SSH | A safe way to log in to a server and type commands on it. |
+| SSH key | A pair of files that lets a person log in without a password. |
+| state/ | The installer's folder with a copy of every password. |
+| TLS | The encryption of web pages (the "s" in https). |
+| Traefik | The front door of the web pages. |
+| Tunnel | A private pipe through SSH from a laptop to a service on a server. |
+| ufw | The firewall program on each server. |
+{% if f.wireguard %}
+| WireGuard | The encrypted network between the servers. |
+{% endif %}

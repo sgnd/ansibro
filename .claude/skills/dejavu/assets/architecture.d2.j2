@@ -1,0 +1,38 @@
+# The architecture of {{ f.domain }}, made by dejavu {{ dejavu }} from ansibro's facts.
+direction: down
+users: {{ {"id": "Pengguna dan admin", "en": "Users and admins"} | t | q }} {shape: person}
+{% if f.traefik_nodes %}
+dns: "DNS *.{{ f.domain }}" {shape: cloud}
+users -> dns: HTTPS 443
+{% endif %}
+cluster: {{ ("Docker Swarm" if f.orchestrator == "swarm" else "k3s (Kubernetes)") | q }} {
+{% for n in f.nodes %}
+  {{ n.name | q }}: {{ (n.name ~ "\n" ~ n.role ~ (" · " ~ n.tier if n.tier else "") ~ "\n" ~ n.ip) | q }} {
+{% if n.traefik %}
+    style.stroke-width: 3
+{% endif %}
+{% if n.apps %}
+    tooltip: {{ n.apps | join(", ") | q }}
+{% endif %}
+  }
+{% endfor %}
+{% set cluster_apps = f.apps | selectattr("cluster") | map(attribute="name") | list %}
+{% if cluster_apps %}
+  services: {{ ({"id": "Aplikasi cluster", "en": "Cluster apps"} | t ~ "\n" ~ cluster_apps | join(", ")) | q }} {shape: hexagon}
+{% endif %}
+}
+{% for n in f.nodes if n.apps %}
+apps_{{ loop.index }}: {{ (n.apps | join(", ")) | q }} {shape: cylinder}
+cluster.{{ n.name | q }} -> apps_{{ loop.index }}
+{% endfor %}
+{% for t in f.traefik_nodes %}
+dns -> cluster.{{ t | q }}: "80/443"
+{% endfor %}
+{% if f.backup.enabled %}
+backup: {{ ({"id": "Backup", "en": "Backup"} | t ~ "\n" ~ f.backup.kind ~ (" · " ~ f.backup.host if f.backup.host else "")) | q }} {shape: stored_data}
+cluster -> backup: {{ ("restic " ~ f.backup.time) | q }}
+{% endif %}
+{% if f.monitoring.channels %}
+alerts: {{ ({"id": "Peringatan", "en": "Alerts"} | t ~ "\n" ~ (f.monitoring.channels | map(attribute="kind") | join(", "))) | q }} {shape: page}
+cluster -> alerts
+{% endif %}

@@ -1,0 +1,487 @@
+# What dejavu knows about ansibro's apps that ansibro has in no machine-readable form:
+# what each app is for, its web pages and how they are guarded, its ports, data, backup,
+# and every file in state/secrets with how to change it after the handover.
+# Checked against ansibro 1.2.0. tests/drift.py fails when ansibro adds an app or a secret
+# that is not here. Every text has an Indonesian (id) and an English (en) version.
+ansibro: "1.2.0"
+
+# guard: who can open a web page.
+#   admin     the admin_allow_from list, then the admin login (Authelia, Keycloak SSO, or Traefik's)
+#   admin-ip  the admin_allow_from list only; the app has its own login
+#   public    anyone; the app has its own login (or none)
+# login: own (the app's login page), layer (the admin login above), none
+# backup: dump (database dump), paused (copied while stopped), live (copied while running),
+#   partial (some folders only), none
+# laptop: web (a browser is enough), tunnel (an SSH tunnel to a port), none
+apps:
+  traefik:
+    about:
+      id: Pintu masuk semua halaman web. Menerima HTTPS untuk domain dan meneruskan tiap subdomain ke aplikasinya, lengkap dengan sertifikat.
+      en: The front door for every web page. It receives HTTPS for the domain and sends each subdomain to its app, with certificates.
+    web: [{host: traefik, path: /dashboard/, guard: admin, login: layer}]
+    ports: []
+    data: [traefik]
+    backup: paused
+    health: traefik healthcheck --ping
+    laptop: web
+    images: [traefik]
+    notes:
+      - when: k3s
+        id: Di k3s yang dipakai adalah Traefik bawaan k3s, dengan versi dari k3s.
+        en: On k3s this is the Traefik built into k3s, with the version that comes with k3s.
+
+  kong:
+    about:
+      id: Gerbang API. Satu alamat untuk API Anda, dengan API key, batas akses, dan rute.
+      en: An API gateway. One address for your APIs, with API keys, rate limits and routes.
+    web:
+      - {host: kong, path: /, guard: public, login: none}
+      - {host: kong-manager, path: /, guard: admin, login: layer}
+    ports: []
+    data: [kong]
+    backup: dump
+    health: kong health
+    laptop: web
+    images: [kong]
+    notes:
+      - id: Pengaturan Kong tersimpan di database PostgreSQL "kong". Layanan API Anda harus bergabung ke jaringan "kong".
+        en: Kong keeps its settings in the PostgreSQL database "kong". Your API services must join the network "kong".
+      - id: Alamat kong.<domain> terbuka untuk umum; itulah alamat API Anda.
+        en: kong.<domain> is open to anyone; it is the address of your APIs.
+
+  portainer:
+    about:
+      id: Halaman web untuk melihat dan mengelola container dan stack di cluster.
+      en: A web page to see and manage the containers and stacks of the cluster.
+    web: [{host: portainer, path: /, guard: admin-ip, login: own}]
+    ports: []
+    data: [portainer]
+    backup: paused
+    health: POST /api/auth
+    laptop: web
+    images: [portainer, portainer-agent]
+    notes:
+      - id: File kata sandi hanya dibaca saat Portainer pertama kali jalan. Setelah itu kata sandi diganti di halaman Portainer.
+        en: The password file is read only at Portainer's first start. After that, change the password in Portainer itself.
+
+  swarmpit:
+    about:
+      id: Halaman web ringan untuk mengelola Docker Swarm.
+      en: A lighter web page to manage Docker Swarm.
+    web: [{host: swarmpit, path: /, guard: admin-ip, login: own}]
+    ports: []
+    data: [swarmpit]
+    backup: paused
+    health: POST /login
+    laptop: web
+    images: [swarmpit, swarmpit-agent, couchdb, influxdb]
+    notes:
+      - id: Swarmpit memakai CouchDB 2.3 dan InfluxDB 1.8 yang sudah tua. Ini risiko yang diketahui.
+        en: Swarmpit uses CouchDB 2.3 and InfluxDB 1.8, which are old. This is a known risk.
+
+  keycloak:
+    about:
+      id: Server login tunggal (SSO). Satu login (OIDC/SAML) untuk aplikasi dan pengguna Anda.
+      en: A single sign-on server. One login (OIDC/SAML) for your apps and users.
+    web:
+      - {host: keycloak, path: /, guard: public, login: own}
+      - {host: oauth, path: /, guard: public, login: own, when: keycloak_login}
+    ports: []
+    data: [keycloak]
+    backup: dump
+    health: /health/ready
+    laptop: web
+    images: [keycloak, oauth2-proxy]
+    notes:
+      - id: Halaman Keycloak terbuka untuk umum (tidak dibatasi IP), karena pengguna aplikasi Anda login di sana.
+        en: Keycloak's page is open to anyone (no IP limit), because the users of your apps log in there.
+      - id: Bila Keycloak menjadi login admin, realm "ansibro" dengan user admin melindungi halaman admin. Aplikasi autentikator diatur saat login pertama; bila yang login pertama adalah vendor, reset dulu.
+        en: When Keycloak is the admin login, the realm "ansibro" with user admin guards the admin pages. The authenticator app is set up at the first login; if the vendor logged in first, reset it.
+
+  authelia:
+    about:
+      id: Halaman login dengan faktor kedua (2FA) di depan halaman admin.
+      en: A login page with a second factor (2FA) in front of the admin pages.
+    web: [{host: authelia, path: /, guard: public, login: own}]
+    ports: []
+    data: [authelia]
+    backup: paused
+    health: POST /api/firstfactor
+    laptop: web
+    images: [authelia]
+    notes:
+      - id: Setelah instalasi, file users.yml di server pertama adalah sumber kebenaran untuk akun Authelia.
+        en: After the install, users.yml on the first manager is the source of truth for Authelia's accounts.
+      - id: Tidak ada server email. Kode 2FA pertama dan tautan reset ditulis ke /opt/ansibro/authelia/config/notification.txt di server pertama.
+        en: There is no mail server. The first 2FA code and reset links are written to /opt/ansibro/authelia/config/notification.txt on the first manager.
+
+  postgres:
+    about:
+      id: Database SQL untuk aplikasi Anda (dan untuk Kong, Keycloak, Authelia).
+      en: An SQL database for your apps (and for Kong, Keycloak and Authelia).
+    web: []
+    ports: [{port: 5432, use: PostgreSQL}]
+    data: [postgres]
+    backup: dump
+    health: pg_isready
+    laptop: tunnel
+    images: [postgres, spilo, etcd, haproxy]
+    notes:
+      - id: Dengan 2 server atau lebih, PostgreSQL berjalan dengan Patroni. Server utama (primary) bisa berpindah; aplikasi di cluster memakai database-proxy.
+        en: On 2 or more servers PostgreSQL runs with Patroni. The primary can move; apps in the cluster use the database-proxy.
+      - id: Naik versi mayor (misalnya 18 ke 19) butuh dump dan restore manual.
+        en: A major version upgrade (for example 18 to 19) needs a manual dump and restore.
+
+  mariadb:
+    about:
+      id: Database SQL yang kompatibel dengan MySQL.
+      en: An SQL database compatible with MySQL.
+    web: []
+    ports: [{port: 3306, use: MariaDB}]
+    data: [mariadb]
+    backup: dump
+    health: healthcheck.sh --connect --innodb_initialized
+    laptop: tunnel
+    images: [mariadb, haproxy]
+    notes:
+      - id: Dengan 3 server, MariaDB berjalan sebagai cluster Galera. Bila ketiganya mati bersamaan, cluster harus dipulihkan manual.
+        en: On 3 servers MariaDB runs as a Galera cluster. If all three stop at once, the cluster must be recovered by hand.
+      - id: Kata sandi root juga dipakai backup malam. Bila diganti hanya di MariaDB, dump malam gagal diam-diam sampai alert BackupTooOld.
+        en: The nightly backup uses the root password too. If it is changed only inside MariaDB, the nightly dump fails silently until BackupTooOld fires.
+
+  redis:
+    about:
+      id: Penyimpanan key-value di memori, untuk cache dan sesi login.
+      en: An in-memory key-value store, for cache and login sessions.
+    web: []
+    ports: [{port: 6379, use: Redis}]
+    data: [redis]
+    backup: paused
+    health: redis-cli ping
+    laptop: tunnel
+    images: [redis]
+    notes:
+      - id: Dengan 3 server ada satu primary dan dua salinan, dipantau Sentinel (port 26379, nama master "ansibro").
+        en: On 3 servers there is one primary and two copies, watched by Sentinel (port 26379, master name "ansibro").
+
+  valkey:
+    about:
+      id: Penyimpanan key-value di memori (pengganti Redis yang sepenuhnya open source), untuk cache dan sesi login.
+      en: An in-memory key-value store (a fully open-source Redis alternative), for cache and login sessions.
+    web: []
+    ports: [{port: 6379, use: Valkey}]
+    data: [valkey]
+    backup: paused
+    health: valkey-cli ping
+    laptop: tunnel
+    images: [valkey]
+    notes:
+      - id: Dengan 3 server ada satu primary dan dua salinan, dipantau Sentinel (port 26379, nama master "ansibro").
+        en: On 3 servers there is one primary and two copies, watched by Sentinel (port 26379, master name "ansibro").
+
+  rustfs:
+    about:
+      id: Penyimpanan file kompatibel S3 untuk aplikasi Anda.
+      en: S3-compatible file storage for your apps.
+    web: [{host: rustfs, path: /rustfs/console/, guard: admin-ip, login: own}]
+    ports: [{port: 9000, use: S3}]
+    data: [rustfs]
+    backup: live
+    health: TCP 9000
+    laptop: tunnel
+    images: [rustfs]
+    notes:
+      - id: Region S3 adalah us-east-1.
+        en: The S3 region is us-east-1.
+
+  garage:
+    about:
+      id: Penyimpanan file kompatibel S3. Pada 3 server, setiap file disimpan 3 salinan.
+      en: S3-compatible file storage. On 3 servers it keeps 3 copies of every file.
+    web: []
+    ports: [{port: 3900, use: S3}]
+    data: [garage]
+    backup: partial
+    health: TCP 3900
+    laptop: tunnel
+    images: [garage]
+    notes:
+      - id: Access key adalah "GK" diikuti isi file garage_access_key; region "garage". Jumlah salinan tidak bisa diubah setelah instalasi pertama.
+        en: The access key is "GK" followed by the garage_access_key file; the region is "garage". The number of copies cannot change after the first install.
+      - id: Mengubah file kunci menambah kunci kedua; kunci lama tetap berlaku sampai dihapus dengan perintah garage.
+        en: Editing the key file adds a second key; the old key stays valid until it is deleted with the garage command.
+
+  rabbitmq:
+    about:
+      id: Antrean pesan (AMQP). Aplikasi saling menyerahkan pekerjaan lewat antrean.
+      en: A message queue (AMQP). Apps hand work to each other through queues.
+    web: [{host: rabbitmq, path: /, guard: admin-ip, login: own}]
+    ports: [{port: 5672, use: AMQP}]
+    data: [rabbitmq]
+    backup: paused
+    health: rabbitmq-diagnostics -q ping
+    laptop: tunnel
+    images: [rabbitmq]
+    notes: []
+
+  nats:
+    about:
+      id: Pesan cepat antar-aplikasi, dengan JetStream untuk aliran yang disimpan.
+      en: Fast messages between apps, with JetStream for stored streams.
+    web: [{host: nats, path: /, guard: admin, login: layer}]
+    ports: [{port: 4222, use: NATS}]
+    data: [nats]
+    backup: paused
+    health: TCP 4222
+    laptop: tunnel
+    images: [nats]
+    notes: []
+
+  uptimekuma:
+    about:
+      id: Memeriksa setiap menit bahwa halaman web Anda menjawab, dan memberi tahu bila ada yang mati.
+      en: Checks every minute that your web pages answer, and tells you when one is down.
+    web: [{host: uptimekuma, path: /, guard: admin-ip, login: own}]
+    ports: []
+    data: [uptimekuma]
+    backup: paused
+    health: TCP 3001
+    laptop: web
+    images: [uptimekuma]
+    notes:
+      - id: Monitor dibuat sekali saat instalasi pertama. Notifikasi (email, Telegram, dan lainnya) harus diatur sendiri di Uptime Kuma.
+        en: The monitors are made once, at the first install. Notifications (email, Telegram and so on) must be set up in Uptime Kuma itself.
+
+  beszel:
+    about:
+      id: Dasbor sederhana CPU, memori, disk, dan container setiap server, dengan peringatan yang diatur di halamannya.
+      en: A simple dashboard of CPU, memory, disk and containers on every server, with alerts set in its own page.
+    web: [{host: beszel, path: /, guard: admin-ip, login: own}]
+    ports: []
+    data: [beszel, beszel-agent]
+    backup: paused
+    health: beszel health
+    laptop: web
+    images: [beszel, beszel-agent]
+    notes:
+      - id: Peringatan Beszel diatur sendiri di halaman Beszel. Installer login dengan kata sandi admin setiap kali dijalankan.
+        en: Beszel alerts are set up in Beszel's own page. The installer logs in with the admin password on every run.
+
+  victoria:
+    about:
+      id: Pemantauan lengkap. Metrik, log, aturan peringatan, Grafana, dan peringatan ke Telegram, email, atau webhook.
+      en: Full monitoring. Metrics, logs, alert rules, Grafana, and alerts to Telegram, email or a webhook.
+    web:
+      - {host: grafana, path: /, guard: admin-ip, login: own}
+      - {host: alertmanager, path: /, guard: admin, login: layer}
+      - {host: metrics, path: /vmui, guard: admin, login: layer}
+      - {host: logs, path: /select/vmui, guard: admin, login: layer}
+    ports: []
+    data: [victoria, monitoring-agent]
+    backup: partial
+    health: Watchdog alert
+    laptop: web
+    images: [victoriametrics, victorialogs, vmalert, alertmanager, grafana]
+    notes:
+      - id: Riwayat metrik dan log tidak ikut di-backup; yang di-backup adalah pengaturan, Grafana, dan Alertmanager.
+        en: The metrics and logs history is not backed up; the settings, Grafana and Alertmanager are.
+
+  openbao:
+    about:
+      id: Brankas untuk rahasia aplikasi Anda (kata sandi, API key). Aplikasi membacanya lewat API.
+      en: A safe for your apps' secrets (passwords, API keys). Apps read them through an API.
+    web: [{host: openbao, path: /ui/, guard: admin-ip, login: own}]
+    ports: [{port: 8200, use: OpenBao API}]
+    data: [openbao]
+    backup: paused
+    health: /v1/sys/health
+    laptop: web
+    images: [openbao]
+    notes:
+      - id: OpenBao terkunci (sealed) setiap kali restart, dan health check-nya tetap hijau saat terkunci. Buka kuncinya dengan unseal key di halaman web, atau jalankan ./install.sh lagi.
+        en: OpenBao is sealed after every restart, and its health check stays green while sealed. Unseal it with the unseal key in the web page, or run ./install.sh again.
+      - id: Installer memakai root token setiap kali dijalankan; mencabutnya membuat instalasi berikutnya gagal.
+        en: The installer uses the root token on every run; revoking it breaks the next install.
+
+# What the catalog does not list, for the architecture chapter.
+# when: always, patroni (postgres on 2+ servers), ha_db (postgres 2+ or mariadb 3),
+#   keycloak_login, ha_cache, victoria, backup, k3s, wireguard, galera, beszel, portainer_swarm
+components:
+  registry:
+    when: always
+    where: managers
+    port: 5000
+    image: registry
+    license: Apache-2.0
+    about:
+      id: Registry image pribadi di setiap manager. Semua server menarik image dari sini.
+      en: A private image registry on every manager. All servers pull images from it.
+  database-proxy:
+    when: ha_db
+    where: cluster
+    port: 5432
+    image: haproxy
+    license: GPL-2.0
+    about:
+      id: HAProxy di depan database ber-HA, selalu menuju server utama (primary).
+      en: HAProxy in front of the HA database, always pointing at the primary.
+  etcd:
+    when: patroni
+    where: managers
+    port: 12379
+    image: etcd
+    license: Apache-2.0
+    about:
+      id: Penyimpanan kunci-nilai yang dipakai Patroni untuk memilih server utama PostgreSQL.
+      en: The key-value store Patroni uses to elect the PostgreSQL primary.
+  oauth2-proxy:
+    when: keycloak_login
+    where: cluster
+    port: null
+    image: oauth2-proxy
+    license: MIT
+    about:
+      id: Menghubungkan halaman admin ke login Keycloak, di oauth.<domain>.
+      en: Connects the admin pages to the Keycloak login, at oauth.<domain>.
+  sentinel:
+    when: ha_cache
+    where: cache servers
+    port: 26379
+    image: null
+    license: null
+    about:
+      id: Mengawasi Redis atau Valkey dan memindahkan primary bila server utama mati.
+      en: Watches Redis or Valkey and moves the primary when it goes down.
+  galera-check:
+    when: galera
+    where: mariadb servers
+    port: 9200
+    image: null
+    license: null
+    about:
+      id: Pemeriksaan sinkronisasi Galera untuk database-proxy.
+      en: The Galera sync check used by the database-proxy.
+  monitoring-agents:
+    when: victoria
+    where: every server
+    port: 9100
+    image: node-exporter
+    license: Apache-2.0
+    about:
+      id: node-exporter, cAdvisor, Vector, dan exporter database di setiap server, plus timer ansibro-metrics.
+      en: node-exporter, cAdvisor, Vector and the database exporters on every server, plus the ansibro-metrics timer.
+  backup:
+    when: backup
+    where: every server
+    port: null
+    image: null
+    license: BSD-2-Clause
+    about:
+      id: Timer ansibro-backup dengan restic setiap malam di setiap server.
+      en: The ansibro-backup timer with restic, every night on every server.
+  k3s:
+    when: k3s
+    where: every server
+    port: 6443
+    image: null
+    license: Apache-2.0
+    about:
+      id: Kubernetes ringan yang menjalankan aplikasi cluster.
+      en: The small Kubernetes that runs the cluster apps.
+  wireguard:
+    when: wireguard
+    where: every server
+    port: 51820
+    image: null
+    license: GPL-2.0
+    about:
+      id: Jaringan terenkripsi antar-server saja (bukan VPN untuk laptop).
+      en: The encrypted network between the servers only (not a VPN for laptops).
+
+# Every file ansibro writes in state/secrets.
+#   app:      the app it belongs to (or a component)
+#   when:     always (with its app), or a condition from the components list above
+#   change:   file      the file is the source: edit it, run ./install.sh
+#             both      change it in the app and in the file together, then ./install.sh
+#             app       change it in the app, then copy it into the file
+#             internal  no person types it: leave it unless it leaked
+#   audience: client (people use it), recovery (needed to restore), internal
+#   verified: false when the change behaviour depends on the app image and was not tested
+secrets:
+  traefik_admin: {app: traefik, when: always, change: file, audience: client, verified: true}
+  traefik_salt: {app: traefik, when: always, change: internal, audience: internal, verified: true}
+  kong_db: {app: kong, when: always, change: file, audience: internal, verified: true}
+  portainer_admin: {app: portainer, when: always, change: app, audience: client, verified: true}
+  portainer_agent_secret: {app: portainer, when: optional, change: internal, audience: internal, verified: true}
+  swarmpit_admin: {app: swarmpit, when: always, change: app, audience: client, verified: true}
+  keycloak_admin: {app: keycloak, when: always, change: both, audience: client, verified: true}
+  keycloak_db: {app: keycloak, when: always, change: file, audience: internal, verified: true}
+  keycloak_sso_admin: {app: keycloak, when: keycloak_login, change: app, audience: client, verified: true}
+  keycloak_oauth_client: {app: keycloak, when: keycloak_login, change: internal, audience: internal, verified: true}
+  keycloak_oauth_cookie: {app: keycloak, when: keycloak_login, change: internal, audience: internal, verified: true}
+  authelia_admin: {app: authelia, when: always, change: app, audience: client, verified: true}
+  authelia_db: {app: authelia, when: always, change: file, audience: internal, verified: true}
+  authelia_jwt_secret: {app: authelia, when: always, change: internal, audience: internal, verified: true}
+  authelia_session_secret: {app: authelia, when: always, change: internal, audience: internal, verified: true}
+  authelia_storage_key: {app: authelia, when: always, change: internal, audience: internal, verified: true}
+  postgres: {app: postgres, when: always, change: both, audience: client, verified: false}
+  postgres_replication: {app: postgres, when: always, change: internal, audience: internal, verified: true}
+  postgres_patroni_api: {app: postgres, when: patroni, change: internal, audience: internal, verified: true}
+  etcd_token: {app: etcd, when: patroni, change: internal, audience: internal, verified: true}
+  mariadb: {app: mariadb, when: always, change: both, audience: client, verified: true}
+  monitor: {app: victoria, when: optional, change: file, audience: internal, verified: true}
+  redis: {app: redis, when: always, change: file, audience: client, verified: true}
+  valkey: {app: valkey, when: always, change: file, audience: client, verified: true}
+  rustfs_access_key: {app: rustfs, when: always, change: file, audience: client, verified: false}
+  rustfs_secret_key: {app: rustfs, when: always, change: file, audience: client, verified: false}
+  garage_access_key: {app: garage, when: always, change: file, audience: client, verified: true}
+  garage_secret_key: {app: garage, when: always, change: file, audience: client, verified: true}
+  garage_rpc_secret: {app: garage, when: always, change: internal, audience: internal, verified: true}
+  garage_admin_token: {app: garage, when: always, change: internal, audience: internal, verified: true}
+  rabbitmq: {app: rabbitmq, when: always, change: app, audience: client, verified: false}
+  nats: {app: nats, when: always, change: file, audience: client, verified: true}
+  uptimekuma_admin: {app: uptimekuma, when: always, change: app, audience: client, verified: true}
+  beszel_admin: {app: beszel, when: always, change: both, audience: client, verified: true}
+  grafana_admin: {app: victoria, when: always, change: app, audience: client, verified: false}
+  openbao_root_token: {app: openbao, when: always, change: both, audience: client, verified: true}
+  openbao_unseal_key: {app: openbao, when: always, change: internal, audience: recovery, verified: true}
+  registry: {app: registry, when: always, change: both, audience: recovery, verified: true}
+  restic: {app: backup, when: backup, change: both, audience: recovery, verified: true}
+  k3s_token: {app: k3s, when: k3s, change: internal, audience: internal, verified: true}
+
+# Entries in the credentials file (KeePassXC). A secret not used by an entry here goes into
+# the "internal" group under its own file name, so nothing is ever left out.
+#   user / user_secret (+ user_prefix): the user name, typed or from another secret
+#   url: {domain} and {ip} (the app's first server) are filled in
+entries:
+  - {secret: traefik_admin, group: web, title: Traefik, user: admin, url: "https://traefik.{domain}/dashboard/"}
+  - {secret: portainer_admin, group: web, title: Portainer, user: admin, url: "https://portainer.{domain}/"}
+  - {secret: swarmpit_admin, group: web, title: Swarmpit, user: admin, url: "https://swarmpit.{domain}/"}
+  - {secret: keycloak_admin, group: web, title: Keycloak (master), user: admin, url: "https://keycloak.{domain}/admin/"}
+  - {secret: keycloak_sso_admin, group: web, title: Keycloak SSO (realm ansibro), user: admin, url: "https://keycloak.{domain}/realms/ansibro/account/"}
+  - {secret: authelia_admin, group: web, title: Authelia, user: admin, url: "https://authelia.{domain}/"}
+  - {secret: uptimekuma_admin, group: web, title: Uptime Kuma, user: admin, url: "https://uptimekuma.{domain}/"}
+  - {secret: beszel_admin, group: web, title: Beszel, user: "admin@{domain}", url: "https://beszel.{domain}/"}
+  - {secret: grafana_admin, group: web, title: Grafana, user: admin, url: "https://grafana.{domain}/"}
+  - {secret: rabbitmq, group: web, title: RabbitMQ, user: admin, url: "https://rabbitmq.{domain}/"}
+  - {secret: nats, group: web, title: NATS, user: admin, url: "nats://{ip}:4222"}
+  - {secret: openbao_root_token, group: web, title: OpenBao root token, user: root, url: "https://openbao.{domain}/ui/"}
+  - {secret: postgres, group: data, title: PostgreSQL, user: postgres, url: "postgresql://{ip}:5432"}
+  - {secret: mariadb, group: data, title: MariaDB, user: root, url: "mysql://{ip}:3306"}
+  - {secret: redis, group: data, title: Redis, user: "", url: "redis://{ip}:6379"}
+  - {secret: valkey, group: data, title: Valkey, user: "", url: "redis://{ip}:6379"}
+  - {secret: rustfs_secret_key, group: storage, title: RustFS S3, user_secret: rustfs_access_key, url: "http://{ip}:9000"}
+  - {secret: garage_secret_key, group: storage, title: Garage S3, user_secret: garage_access_key, user_prefix: GK, url: "http://{ip}:3900"}
+  - {secret: registry, group: infra, title: Image registry, user: ansibro, url: "https://registry.ansibro:5000"}
+  - {secret: restic, group: recovery, title: Backup (restic), user: "", url: ""}
+  - {secret: openbao_unseal_key, group: recovery, title: OpenBao unseal key, user: "", url: "https://openbao.{domain}/ui/"}
+
+# Group titles in the credentials file, in order.
+groups:
+  web: {id: 01 Login web, en: 01 Web logins}
+  data: {id: 02 Database dan cache, en: 02 Databases and cache}
+  storage: {id: 03 Penyimpanan S3, en: 03 S3 storage}
+  infra: {id: 04 Infrastruktur, en: 04 Infrastructure}
+  recovery: {id: 05 Pemulihan (darurat), en: 05 Recovery (break-glass)}
+  internal: {id: 06 Internal (menjalankan ulang ansibro), en: 06 Internal (re-run ansibro)}
+  old: {id: 07 Lama (aplikasi yang sudah dihapus), en: 07 Old (removed apps)}

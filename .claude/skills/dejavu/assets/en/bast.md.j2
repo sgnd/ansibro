@@ -1,0 +1,347 @@
+{## The Handover and Acceptance Certificate (the English BAST), with Annexes 1 to 3.
+    The Indonesian twin (id/bast.md.j2) has the same structure. ##}
+{% set NP = "Not provided" %}
+{% set bast = a.get("bast") or {} %}
+{% set doc = a.get("document") or {} %}
+{% set client = a.get("client") or {} %}
+{% set vendor = a.get("vendor") or {} %}
+{% set csign = client.get("signer") or {} %}
+{% set vsign = vendor.get("signer") or {} %}
+{% set contract = bast.get("contract") or {} %}
+{% set meterai = bast.get("meterai") or {} %}
+{% set dns = a.get("dns") or {} %}
+{% set delivery = a.get("delivery") or {} %}
+{% set support = a.get("support") or {} %}
+{% set warranty = support.get("warranty") or {} %}
+{% set stage = bast.get("stage") or "single" %}
+{% set first_party = bast.get("first_party") or "vendor" %}
+{% set copies = bast.get("copies") or 2 %}
+{% set pw_days = a.get("password_change_days") %}
+{% set state_owner = a.get("state_owner") or "vendor" %}
+{% set system = a.get("environment") or f.domain %}
+{% set kdbx_name = kdbx.name if kdbx else slug ~ ("-kredensial.kdbx" if first_lang == "id" else "-credentials.kdbx") %}
+{% set good = check and not check.stale and check.failed == 0 and check.rows %}
+{% set condition = "Good and working" if good else ("With notes (see point 5)" if check else "Not yet tested") %}
+{% set osname = {"windows": "Windows", "macos": "macOS", "linux": "Linux"} %}
+{% macro v(x) %}{{ x | md if x not in (None, "") else NP }}{% endmacro %}
+{% macro d(x) %}{{ x | date if x else NP }}{% endmacro %}
+{% macro short(h) %}`{{ h[:16] }}…`{% endmacro %}
+{% macro party(who) %}
+{% if who == "vendor" %}
+**{{ v(vsign.get("name")) }}**, {{ v(vsign.get("title")) }}, acting for and on behalf of **{{ v(vendor.get("name")) }}**, {{ v(vendor.get("address")) }}, hereinafter called **the Provider**.
+{% else %}
+**{{ v(csign.get("name")) }}**, {{ v(csign.get("title")) }}, acting for and on behalf of **{{ v(client.get("name")) }}**, {{ v(client.get("address")) }}, hereinafter called **the Client**.
+{% endif %}
+{% endmacro %}
+{% macro signatory(who) %}
+{% if who == "vendor" %}
+  - {role: "THE PROVIDER", company: {{ (vendor.get("name") or NP) | q }}, name: {{ (vsign.get("name") or NP) | q }}, title: {{ (vsign.get("title") or NP) | q }}, meterai: {{ "true" if meterai.get("enabled") and meterai.get("side") == "vendor" else "false" }}}
+{% else %}
+  - {role: "THE CLIENT", company: {{ (client.get("name") or NP) | q }}, name: {{ (csign.get("name") or NP) | q }}, title: {{ (csign.get("title") or NP) | q }}, meterai: {{ "true" if meterai.get("enabled") and (meterai.get("side") or "client") == "client" else "false" }}}
+{% endif %}
+{% endmacro %}
+{% set order = ["vendor", "client"] if first_party == "vendor" else ["client", "vendor"] %}
+---
+title: {{ (bast.get("title") or "HANDOVER AND ACCEPTANCE CERTIFICATE") | q }}
+short-title: {{ "Handover and Acceptance Certificate" | q }}
+lang: en
+docnumber: {{ (bast.get("number") or NP) | q }}
+version: {{ (doc.get("version") or "1.0") | q }}
+date: {{ ((bast.date | date) if bast.get("date") else NP) | q }}
+classification: {{ (doc.get("classification") or "CONFIDENTIAL") | q }}
+{% if draft %}
+draft: true
+{% endif %}
+labels: {page: "Page", of: "of", toc: "Contents"}
+kop:
+  name: {{ (vendor.get("name") or NP) | q }}
+  address: {{ (vendor.get("address") or NP) | q }}
+{% if logo.vendor %}
+  logo: {{ logo.vendor | q }}
+{% endif %}
+signatories:
+{% for who in order %}
+{{ signatory(who) }}
+{% endfor %}
+meterai-label: {{ "Stamp duty (meterai) Rp10,000" | q }}
+{% if bast.get("mengetahui") %}
+mengetahui-label: {{ "Acknowledged by" | q }}
+mengetahui-count: {{ bast.mengetahui | length }}
+mengetahui:
+{% for m in bast.mengetahui %}
+  - {name: {{ (m.get("name") or NP) | q }}, title: {{ (m.get("title") or NP) | q }}, company: {{ (m.get("company") or "") | q }}}
+{% endfor %}
+{% endif %}
+{% if bast.get("witnesses") %}
+witnesses-label: {{ "Witnesses" | q }}
+witnesses-count: {{ bast.witnesses | length }}
+witnesses:
+{% for m in bast.witnesses %}
+  - {name: {{ (m.get("name") or NP) | q }}, title: {{ (m.get("title") or NP) | q }}, company: {{ (m.get("company") or "") | q }}}
+{% endfor %}
+{% endif %}
+---
+
+```{=typst}
+#align(center)[
+```
+
+**{{ (bast.get("title") or "HANDOVER AND ACCEPTANCE CERTIFICATE") | md }}**\
+Number: {{ v(bast.get("number")) }}{% if stage != "single" %}\
+{{ "Provisional handover (PHO)" if stage == "pho" else "Final handover (FHO)" }}{% endif %}
+
+
+```{=typst}
+]
+```
+
+Basis: {{ v(contract.get("name")) }}, number {{ v(contract.get("number")) }}, dated {{ d(contract.get("date")) }}.
+
+On {{ (bast.date | datewords) if bast.get("date") else NP }}, in {{ v(bast.get("place")) }}, the undersigned:
+
+{% for who in order %}
+{{ loop.index }}. {{ party(who) | trim }}
+{% endfor %}
+
+## 1. What is handed over {#bast-items}
+
+{% if stage == "pho" %}
+The Provider states that the work is 100% complete, and hands it over provisionally to the Client. The Client accepts it, in the condition stated in the table below. The final handover is planned for {{ d(bast.get("fho_date")) }}. The warranty period starts on the date of this certificate.
+{% elif stage == "fho" %}
+With this certificate the Provider makes the final handover of the work to the Client, and the Client gives final acceptance, in the condition stated in the table below.
+{% else %}
+The Provider hands over to the Client, and the Client states that it has received, the work and the items in the table below, in the condition stated there.
+{% endif %}
+{% if good %}
+The system is in good and working order: the acceptance test of {{ check.date }} passed with no failures (Annex 1).
+{% elif check %}
+The system is handed over with notes: {{ "the acceptance test is older than the last install" if check.stale else "the acceptance test found " ~ check.failed ~ " failure(s)" }} (see point 5).
+{% else %}
+The system has not yet been tested: the acceptance test has not been run. The checks are in Annex 1.
+{% endif %}
+
+| No    | Item                       | Quantity and specification                                   | Condition       | Remarks                                       |
+|:------|:---------------------------|:-------------------------------------------------------------|:----------------|:----------------------------------------------|
+{% set n = namespace(i=0) %}
+{% set n.i = n.i + 1 %}
+| {{ n.i }} | The system ({{ system | md }}) | {{ "Docker Swarm" if f.orchestrator == "swarm" else "Kubernetes (k3s)" }} cluster of {{ f.nodes | length }} servers ({{ f.nodes | map(attribute="name") | join(", ") }}), domain {{ f.domain }}, installed with ansibro {{ f.ansibro.version or NP }} | {{ condition }} | Last install {{ f.last_install or NP }} |
+{% set n.i = n.i + 1 %}
+| {{ n.i }} | Applications | {% for ap in f.apps %}{{ ap.name }} {{ ap.version or "" }}{{ ", " if not loop.last }}{% endfor %} | {{ condition }} | Details in chapter 4 of the technical documentation |
+{% for x in files if not x.name.endswith(".kdbx") %}
+{% set n.i = n.i + 1 %}
+{% set base = x.name.split("/")[-1] %}
+{% set other = x.name.startswith("id/") %}
+| {{ n.i }} | {% if "technical-documentation" in base or "dokumentasi-teknis" in base %}Technical documentation{% elif "laptop-guide" in base or "panduan-laptop" in base %}Laptop access guide ({{ osname.get(base.rsplit("-", 1)[-1].split(".")[0], "") }}){% elif base == "ssh_config.txt" %}SSH settings for laptops{% elif base == "hosts.txt" %}Hosts file lines{% elif base.endswith(".crt") %}Certificate authority to trust{% else %}File{% endif %}{{ " (Indonesian)" if other }} | `{{ x.name }}`{{ (", version " ~ (doc.get("version") or "1.0")) if base.endswith(".pdf") }} | Complete | SHA-256 {{ short(x.sha256) }} (Annex 3) |
+{% endfor %}
+{% set n.i = n.i + 1 %}
+| {{ n.i }} | Credentials file (encrypted) | `{{ kdbx_name }}`{{ (", " ~ (kdbx.size | num) ~ " bytes") if kdbx }}; handed over via {{ v(delivery.get("kdbx_channel")) }} on {{ d(bast.get("date")) }} | {{ "Complete, encrypted" if kdbx else NP }} | SHA-256 {{ short(kdbx.sha256) if kdbx else NP }} (Annex 3). The passphrase was given separately via {{ v(delivery.get("passphrase_channel")) }} to {{ v(delivery.get("recipient")) }}. These documents contain no passwords. |
+{% set n.i = n.i + 1 %}
+| {{ n.i }} | Domain and DNS | {{ f.domain }}; DNS: {{ {"public": "public DNS", "internal": "company DNS", "hosts": "hosts file (no DNS)"}.get(dns.get("mode") or "public", NP) }}{{ (" at " ~ (dns.provider | md)) if dns.get("provider") and dns.get("mode") != "hosts" }} | In use | Domain holder: {{ v(dns.get("owner")) }} |
+{% set n.i = n.i + 1 %}
+{% if f.backup.enabled %}
+| {{ n.i }} | Backup repository | restic, {{ f.backup.kind }} at {{ f.backup.host or NP }}, every night at {{ f.backup.time or NP }} ({{ f.timezone }}) | In use | Its password is in the credentials file, group "{{ groups.recovery[first_lang] }}" |
+{% else %}
+| {{ n.i }} | Backup repository | None | Not present | No backup is set up (see point 5) |
+{% endif %}
+{% set n.i = n.i + 1 %}
+| {{ n.i }} | Accounts | Names only, no values: see Annex 2 | Handed over | Values only in the credentials file |
+
+## 2. Duties after receipt {#bast-duties}
+
+1. The Client changes every password meant for people (Annex 2) within {{ (pw_days ~ " (" ~ (pw_days | words) ~ ") days") if pw_days else NP }} of the date of this certificate, as described in chapter 6 and Appendix E of the technical documentation, and changes the passphrase of the credentials file. The Client keeps the credentials file as the record of the accounts.
+2. On {{ d(a.get("vendor_access_end")) }}, the Provider's SSH key and internet addresses are removed from the servers and the allow-lists.
+{% if state_owner == "vendor" %}
+3. The Provider keeps the installer's records (ansibro's state/ folder), which are needed to change the system later. When the Client changes a password of the kind that the installer also uses, the Client sends the new value back to the Provider in a re-encrypted credentials file; otherwise the next install undoes the change or fails. The Client also has a copy of these records in the credentials file, so it can change provider at any time.
+{% else %}
+3. The Client keeps the installer's records (ansibro's state/ folder), from the credentials file, group "{{ groups.internal[first_lang] }}". The Provider deletes its own copy when the parties agree.
+{% endif %}
+
+## 3. Warranty and maintenance {#bast-warranty}
+
+- Warranty period: {{ (warranty.months ~ " (" ~ (warranty.months | words) ~ ") months") if warranty.get("months") else NP }}, until {{ d(warranty.get("until")) }}.
+- Scope: {{ v(warranty.get("scope")) }}.
+- Support hours: {{ v(support.get("hours")) }}. Response time: {{ v(support.get("sla")) }}.
+- From the date of this certificate, the risk for the system passes to the Client.
+
+{% if support.get("contacts") %}
+| Name                       | Role                     | Phone                    | Email                            |
+|:---------------------------|:-------------------------|:-------------------------|:---------------------------------|
+{% for c in support.contacts %}
+| {{ v(c.get("name")) }} | {{ v(c.get("role")) }} | {{ v(c.get("phone")) }} | {{ v(c.get("email")) }} |
+{% endfor %}
+{% else %}
+Support contacts: {{ NP }}.
+{% endif %}
+
+## 4. Acceptance test {#bast-acceptance}
+
+{% if check %}
+The acceptance test ran on {{ check.date or NP }}: {{ check.passed }} passed, {{ check.failed }} failed, {{ check.skipped }} skipped.{{ " It is older than the last install (" ~ f.last_install ~ "), so it must be run again." if check.stale }}
+{% else %}
+The acceptance test has not been run yet. The checks are in Annex 1, to be done together during the handover session.
+{% endif %}
+Last restore test: {{ d(a.get("restore_drill")) if a.get("restore_drill") else "never done" }}.
+
+## 5. Notes {#bast-notes}
+
+{% set warn_text = {
+  "allowlist-empty": "The allow-list {list} is empty: open to anyone.",
+  "stale-secret": "Password files of removed apps remain ({name}); they are kept in the credentials file, group \"" ~ groups.old[first_lang] ~ "\".",
+  "missing-secret": "Expected password files are missing: {name}.",
+  "unknown-secret": "Password files unknown to dejavu exist: {name}.",
+  "tls-selfsigned": "The web pages have no trusted certificate (selfsigned): browsers show a warning.",
+  "no-backup": "No backup is set up.",
+  "backup-no-alert": "Nobody is alerted when the backup stops working.",
+  "no-monitoring": "No monitoring is set up: nobody receives alerts.",
+  "uptimekuma-notifications-manual": "Uptime Kuma notifications must be set up by hand.",
+  "beszel-alerts-manual": "Beszel alerts must be set up by hand.",
+  "swarmpit-old-databases": "Swarmpit uses old database versions (a known risk).",
+  "ansibro-untested-version": "This ansibro version ({version}) was not tested with dejavu.",
+  "ansibro-dirty": "The installer folder had changes not recorded in git.",
+  "shared-state": "Several configs share one state folder.",
+  "custom-cert-expires": "The web certificate ends in {days} days.",
+  "not-documented": "Settings not described in these documents: {key}.",
+  "unknown-app": "Apps not described in these documents: {app}.",
+} %}
+{% set items = namespace(n=0) %}
+{% for x in a.get("notes") or [] %}
+{% set items.n = items.n + 1 %}
+- {{ x | md }}
+{% endfor %}
+{% for x in a.get("known_issues") or [] %}
+{% set items.n = items.n + 1 %}
+- Known issue: {{ x | md }}
+{% endfor %}
+{% set grouped = ["missing-secret", "stale-secret", "unknown-secret", "not-documented", "unknown-app"] %}
+{% for w in f.warnings if w.id not in grouped %}
+{% set items.n = items.n + 1 %}
+- Open point: {{ (warn_text.get(w.id) or w.id).format(**w) }}
+{% endfor %}
+{% for g in grouped %}
+{% set ws = f.warnings | selectattr("id", "equalto", g) | list %}
+{% if ws %}
+{% set items.n = items.n + 1 %}
+{% set key = {"not-documented": "key", "unknown-app": "app"}.get(g, "name") %}
+- Open point: {{ warn_text[g].format(**{key: (ws | map(attribute=key) | join(", "))}) }}
+{% endif %}
+{% endfor %}
+{% if check and check.failed %}
+{% set items.n = items.n + 1 %}
+- Failed acceptance checks: {% for r in check.rows if r.result == "FAIL" %}{{ r.text | md }}{{ "; " if not loop.last else "." }}{% endfor %}
+
+{% endif %}
+{% for x in a.get("out_of_scope") or [] %}
+{% set items.n = items.n + 1 %}
+- Not part of the work: {{ x | md }}
+{% endfor %}
+{% if items.n == 0 %}
+None.
+{% endif %}
+
+```{=typst}
+#block(breakable: false)[
+```
+
+## 6. Closing {#bast-closing}
+
+This certificate is made truthfully in {{ copies }} ({{ copies | words }}) copies, each with the same legal force, one for each party{% if lang_both %}. It is also made in Indonesian; if the two versions differ in meaning, the Indonesian version prevails{% endif %}.
+
+```{=typst}
+#signatures()
+```
+
+```{=typst}
+]
+```
+
+```{=typst}
+#pagebreak()
+```
+
+## Annex 1. Acceptance checklist {#bast-annex-checklist}
+
+Done together during the handover session. Each party initials each row.
+
+| □ | Item                                   | How to check                                             | Result     | Provider   | Client     |
+|:--|:---------------------------------------|:---------------------------------------------------------|:-----------|:-----------|:-----------|
+{% for w in web %}
+| □ | <{{ w.url }}> opens | Open it in a browser{{ " (a certificate warning is expected)" if f.tls == "selfsigned" }} | | | |
+{% endfor %}
+| □ | Each login works | Log in with each web entry of Annex 2 | | | |
+{% if f.admin_sso %}
+| □ | 2FA set up on the Client's phone | Log in to an admin page with the 6-digit code | | | |
+{% endif %}
+| □ | Credentials file opens, SHA-256 matches | Compare with Annex 3, then open it with the passphrase | | | |
+{% for p in people %}
+| □ | Laptop access: {{ v(p.get("name")) }} | {{ {"viewer": "Web pages", "operator": "Web pages, SSH and the tunnel", "successor": "Web pages, SSH, the tunnel and the installer"}.get(p.get("persona"), "Web pages") }} from {{ osname.get(p.get("os"), NP) }} | | | |
+{% else %}
+| □ | Laptop access | Web pages, SSH and the tunnel from the Client's laptop | | | |
+{% endfor %}
+| □ | The Client's SSH key is on every server | `ssh {{ slug }}-<server>` works for each server | | | |
+| □ | The Client's addresses are allowed | {{ "The lists are empty (open to anyone): the Client confirms this" if not f.ssh.allow_from and not f.admin_allow_from else "Admin pages and SSH open from the Client's address" }} | | | |
+{% if f.orchestrator == "k3s" %}
+| □ | kubeconfig copied | `kubectl get nodes` works through the tunnel | | | |
+{% endif %}
+{% if f.backup.enabled %}
+| □ | A backup under 26 hours old | `sudo ansibro-backup snapshots` on a server | | | |
+{% endif %}
+| □ | Restore test | {{ ("Done on " ~ a.restore_drill) if a.get("restore_drill") else "Not done" }} | | | |
+{% if f.monitoring.app %}
+| □ | A test alert is received | The alert arrives on the agreed channel | | | |
+{% endif %}
+{% if has("uptimekuma") or has("beszel") %}
+| □ | Notifications set in {{ "Uptime Kuma and Beszel" if has("uptimekuma") and has("beszel") else ("Uptime Kuma" if has("uptimekuma") else "Beszel") }} | Each app's notification settings show a channel | | | |
+{% endif %}
+{% if has("openbao") %}
+| □ | The Client holds the OpenBao unseal key | Entry "{{ groups.recovery[first_lang] }}/OpenBao unseal key" | | | |
+{% endif %}
+| □ | System test (check.py) | `.venv/bin/python tests/check.py` | {{ (check.passed ~ " PASS / " ~ check.failed ~ " FAIL / " ~ check.skipped ~ " SKIP") if check else "" }} | | |
+
+```{=typst}
+#pagebreak()
+```
+
+## Annex 2. Accounts {#bast-annex-accounts}
+
+The names of the accounts in the credentials file **{{ kdbx_name }}**. No password is written here. The address is in each entry.
+
+| App            | User          | Entry in the credentials file                   | Used for                      | How to change it                      |
+|:---------------|:--------------|:------------------------------------------------|:------------------------------|:--------------------------------------|
+{% set seen = namespace(paths=[]) %}
+{% for s in f.secrets if s.status == "present" and s.group not in ("internal", "old") %}
+{% set path = groups[s.group][first_lang] ~ "/" ~ s.title %}
+{% if path not in seen.paths %}
+{% set seen.paths = seen.paths + [path] %}
+| {{ s.app }} | {{ (s.user | md) if s.user else "—" }} | {{ path }} | {{ {"client": "People log in with it", "recovery": "Recovery (keep it safe)", "internal": "Internal"}[s.audience] }} | {{ {"file": "Edit the file, run the installer", "both": "In the app and the file together", "app": "In the app, then the file", "internal": "Only if it leaked"}[s.change] }}{{ " (not tested)" if not s.verified }} |
+{% endif %}
+{% endfor %}
+{% for c in f.config_secrets %}
+| config.yml | — | {{ groups.recovery[first_lang] }}/config.yml {{ c }} | Recovery (keep it safe) | In config.yml, run the installer |
+{% endfor %}
+{% if a.get("ssh_handover") == "generated" %}
+| SSH | — | {{ groups.infra[first_lang] }}/SSH key (client) | The Client's SSH key (attachment) | Make a new key, replace it on every server |
+{% endif %}
+| ansibro | — | {{ groups.internal[first_lang] }}/ansibro installer files | To run the installer again (attachment) | Goes out of date after password changes |
+
+{% set internal = f.secrets | selectattr("status", "equalto", "present") | selectattr("group", "equalto", "internal") | list %}
+{% set old = f.secrets | selectattr("group", "equalto", "old") | list %}
+{% if internal %}The group "{{ groups.internal[first_lang] }}" also holds {{ internal | length }} internal entries that no person types{% if old %}, and "{{ groups.old[first_lang] }}" holds {{ old | length }} from removed apps{% endif %}. {% endif %}The technical documentation, chapter 6, explains each change.
+
+```{=typst}
+#pagebreak()
+```
+
+## Annex 3. Delivered files {#bast-annex-files}
+
+Each file with its size and SHA-256 code (a fingerprint of its content: the smallest change gives another code). The code of this certificate itself is in the file SHA256SUMS.
+
+| File                                         | Size (bytes)   | SHA-256                                  |
+|:---------------------------------------------|:---------------|:-----------------------------------------|
+{% for x in files %}
+| `{{ x.name }}` | {{ x.size | num }} | `{{ x.sha256[:32] }}` `{{ x.sha256[32:] }}` |
+{% endfor %}
+{% if not kdbx %}
+| `{{ kdbx_name }}` | {{ NP }} | {{ NP }} |
+{% endif %}
+
+To check a file: `Get-FileHash <file> -Algorithm SHA256` (Windows), `shasum -a 256 <file>` (macOS), `sha256sum <file>` (Linux).

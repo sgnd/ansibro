@@ -1,0 +1,59 @@
+{## Panduan laptop tersendiri untuk satu OS (only_os). Isinya id/laptop.md.j2. ##}
+{% set NP = "Belum diisi" %}
+{% set osname = {"windows": "Windows", "macos": "macOS", "linux": "Linux"} %}
+{% set system = a.get("environment") or f.domain %}
+{% set doc = a.get("document") or {} %}
+{% set bast = a.get("bast") or {} %}
+{% set client = a.get("client") or {} %}
+{% set vendor = a.get("vendor") or {} %}
+{% set dns = a.get("dns") or {} %}
+{% set client_ca = (a.get("tls") or {}).get("client_ca") %}
+{% set docnumber = doc.get("number") or NP %}
+{% set docversion = doc.get("version") or "1.0" %}
+{% set docclass = doc.get("classification") or "TERBATAS" %}
+{% set docdate = (bast.date | date) if bast.get("date") else NP %}
+{% set mine = people | selectattr("os", "equalto", only_os) | list %}
+---
+title: {{ "Panduan Akses Laptop" | q }}
+subtitle: {{ (osname[only_os] ~ " · " ~ system) | q }}
+short-title: {{ ("Panduan Akses Laptop (" ~ osname[only_os] ~ ")") | q }}
+lang: id
+region: ID
+docnumber: {{ docnumber | q }}
+version: {{ docversion | q }}
+date: {{ (docdate if bast.get("date") else (today | date)) | q }}
+classification: {{ docclass | q }}
+numbered: true
+{% if draft %}
+draft: true
+{% endif %}
+labels: {page: "Halaman", of: "dari", toc: "Daftar Isi"}
+cover:
+  kicker: {{ "PANDUAN AKSES LAPTOP" | q }}
+{% if logo.vendor %}
+  logo: {{ logo.vendor | q }}
+{% endif %}
+  rows:
+    - {label: "Klien", value: {{ (client.get("name") or NP) | q }}}
+    - {label: "Vendor", value: {{ (vendor.get("name") or NP) | q }}}
+    - {label: "Sistem", value: {{ (system ~ " (" ~ f.domain ~ ")" if a.get("environment") else f.domain) | q }}}
+    - {label: "Laptop", value: {{ osname[only_os] | q }}}
+    - {label: "Nomor dokumen", value: {{ docnumber | q }}}
+    - {label: "Versi", value: {{ docversion | q }}}
+    - {label: "Tanggal", value: {{ docdate | q }}}
+    - {label: "Klasifikasi", value: {{ docclass | q }}}
+  footer: {{ ("Dibuat dengan dejavu " ~ dejavu ~ " dari ansibro " ~ (f.ansibro.version or "?") ~ ". Panduan ini tidak memuat kata sandi; semua kata sandi hanya ada di file kredensial yang terenkripsi.") | q }}
+---
+
+# Akses dari laptop ({{ osname[only_os] }}) {#guide}
+
+Panduan ini menjelaskan cara menjangkau {{ system | md }} ({{ f.domain }}) milik {{ client.name | md if client.get("name") else NP }} dari laptop {{ osname[only_os] }}: halaman web, kata sandi, dan, bagi operator, server. Panduan ini bagian dari serah terima oleh {{ vendor.name | md if vendor.get("name") else NP }}. Rincian lengkapnya ada di dokumentasi teknis.
+
+{% if mine %}
+Panduan ini ditujukan untuk: {% for p in mine %}{{ p.name | md if p.name else NP }}{{ ", " if not loop.last else "." }}{% endfor %}
+
+
+{% endif %}
+Anda memerlukan file-file ini dari paket serah terima: file kredensial, ssh_config.txt{{ ", hosts.txt" if dns.get("mode") == "hosts" }}{{ (", " ~ slug ~ "-ca.crt") if f.ca_file or client_ca }}, serta frasa sandi pembuka file kredensial, yang disampaikan kepada Anda secara terpisah.
+
+{% include "id/laptop.md.j2" %}

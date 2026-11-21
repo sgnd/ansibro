@@ -144,6 +144,7 @@ Logins, what each app needs, and notes: [docs/apps.md](docs/apps.md).
 | [Docker Swarm or k3s](docs/k3s.md) | use k3s (Kubernetes) instead of Docker Swarm |
 | [Advanced](docs/advanced.md) | Kong, Swarmpit, Authelia in front of your own apps |
 | [How it works](docs/how-it-works.md) | know what the installer does, and the firewall rules |
+| [Handover skill](.claude/skills/dejavu/SKILL.md) | make the handover pack for a client: BAST, technical docs, laptop guides, one encrypted password file (`dejavu`, for AI agents) |
 
 ## Contributing
 
