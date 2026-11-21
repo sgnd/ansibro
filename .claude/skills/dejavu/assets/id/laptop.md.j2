@@ -1,0 +1,709 @@
+{## Isi "Akses dari laptop": bab 5 dokumentasi teknis, dan panduan laptop tersendiri (satu OS).
+    Judul mulai dari ##. Setiap bagian yang bergantung pada sistem dibungkus if. Kembarannya dalam
+    bahasa Inggris (en/laptop.md.j2) punya struktur yang sama. ##}
+{% set oses_shown = [only_os] if only_os else oses %}
+{% set NP = "Belum diisi" %}
+{% set dns = a.get("dns") or {} %}
+{% set delivery = a.get("delivery") or {} %}
+{% set support = a.get("support") or {} %}
+{% set client_ca = (a.get("tls") or {}).get("client_ca") %}
+{% set state_owner = a.get("state_owner") or "vendor" %}
+{% set ssh_handover = a.get("ssh_handover") or "client_key" %}
+{% set pw_days = a.get("password_change_days") %}
+{% set extra_apps = a.get("extra_apps") or [] %}
+{% set osname = {"windows": "Windows", "macos": "macOS", "linux": "Linux"} %}
+{% set persona_name = {"viewer": "Pembaca", "operator": "Operator", "successor": "Penerus"} %}
+{% set win = "windows" in oses_shown %}
+{% set unix_os = oses_shown | reject("equalto", "windows") | list %}
+{% set unix_label = unix_os | join(" dan ") | replace("macos", "macOS") | replace("linux", "Linux") %}
+{% set kdbx_name = slug ~ ("-kredensial.kdbx" if first_lang == "id" else "-credentials.kdbx") %}
+{% set first = reach | selectattr("first") | first %}
+{% set mgr = first.alias %}
+{% set traefik_nodes = reach | selectattr("traefik") | list %}
+{% set tunnel_host = reach | selectattr("direct") | first | default(reach[0]) %}
+{% set personas = people | map(attribute="persona") | select | list %}
+{% set show_successor = state_owner == "client" or "successor" in personas %}
+{% set has_web = has("traefik") and web %}
+{% set layer = {"authelia": "Authelia", "keycloak": "Keycloak SSO"}.get(f.admin_sso, "Traefik") %}
+{% set layer_secret = {"authelia": "authelia_admin", "keycloak": "keycloak_sso_admin"}.get(f.admin_sso, "traefik_admin") %}
+{% set doc_ref = "dokumentasi teknis" if only_os else "dokumen ini" %}
+{% macro entry(name) %}{% set s = f.secrets | selectattr("name", "equalto", name) | selectattr("status", "equalto", "present") | list %}{% if s %}{{ groups[s[0].group][first_lang] }}/{{ s[0].title }}{% else %}{{ NP }}{% endif %}{% endmacro %}
+{% macro app_entries(app_name) %}{% set s = f.secrets | selectattr("app", "equalto", app_name) | selectattr("group", "equalto", "web") | selectattr("status", "equalto", "present") | list %}{% if s %}{% for x in s %}{{ groups[x.group][first_lang] }}/{{ x.title }}{{ "; " if not loop.last }}{% endfor %}{% else %}Tidak ada{% endif %}{% endmacro %}
+{% macro cmds(unix, ps) %}
+{% if unix_os and unix %}
+{{ unix_label }} (Terminal):
+
+```sh
+{{ unix }}
+```
+
+{% endif %}
+{% if win and ps %}
+Windows (PowerShell):
+
+```powershell
+{{ ps }}
+```
+
+{% endif %}
+{% endmacro %}
+{% macro per_os(w, m, l) %}
+{% for o in oses_shown %}
+{% set c = {"windows": w, "macos": m, "linux": l}[o] %}
+{% if c %}
+{{ osname[o] }} ({{ "PowerShell" if o == "windows" else "Terminal" }}):
+
+```{{ "powershell" if o == "windows" else "sh" }}
+{{ c }}
+```
+
+{% endif %}
+{% endfor %}
+{% endmacro %}
+{% macro tunnel_port(app_name) %}{% set t = f.tunnels | selectattr("app", "equalto", app_name) | list %}{{ t[0].local if t else NP }}{% endmacro %}
+## Siapa butuh apa {#access-who}
+
+Bagian ini menjelaskan, langkah demi langkah, cara menjangkau sistem dari komputer Anda sendiri. Bagian ini ditulis untuk {{ oses_shown | join(", ") | replace("windows", "Windows") | replace("macos", "macOS") | replace("linux", "Linux") }}.{% if win %} Di Windows, perintah diketik di **PowerShell** (buka menu Start, ketik "PowerShell").{% endif %}{% if unix_os %} Di {{ unix_label }}, perintah diketik di aplikasi **Terminal**.{% endif %} Setiap langkah menjelaskan apa tujuannya, apa yang diketik, apa yang seharusnya tampil, dan apa yang dilakukan bila gagal.
+
+Perintah yang bertanda *(belum diuji)* belum pernah dicoba di laptop sungguhan. Bila salah satunya gagal, beri tahu vendor.
+
+Tidak semua orang membutuhkan semua bagian. Cari peran Anda di tabel ini:
+
+|                          | Pembaca (hanya halaman web)   | Operator (juga server)          | Penerus (menjalankan installer)  |
+|:-------------------------|:------------------------------|:--------------------------------|:---------------------------------|
+| Alat                     | Browser, KeePassXC{{ ", aplikasi autentikator" if f.admin_sso }} | Sama, ditambah program SSH{{ ", kubectl" if f.orchestrator == "k3s" }}; alat database bila perlu | Sama, ditambah git, Python 3.12 atau lebih baru, age; hanya macOS atau Linux |
+| Halaman web              | Ya                            | Ya                              | Ya                               |
+| SSH dan tunnel           | Tidak                         | Ya                              | Ya                               |
+| Menjalankan installer    | Tidak                         | Tidak                           | Ya                               |
+
+{% if people %}
+Orang yang disebut dalam serah terima ini:
+
+| Nama                      | Peran         | Laptop       | Alamat internet                   |
+|:--------------------------|:--------------|:-------------|:----------------------------------|
+{% for p in people %}
+| {{ p.name | md if p.name else NP }} | {{ persona_name.get(p.persona, p.persona | capitalize) if p.persona else NP }} | {{ osname.get(p.os, NP) if p.os else NP }} | {{ (p.allow_from | join(", ") | md) if p.allow_from else NP }} |
+{% endfor %}
+
+{% endif %}
+Sebelum kunjungan pertama Anda, vendor melakukan dua hal untuk Anda:
+
+1. Menambahkan alamat internet Anda ke daftar izin (allow-list), bila daftar itu dipakai (lihat [Alamat internet Anda](#access-ip)).
+2. Memasang kunci SSH Anda di setiap server, bila Anda operator (lihat [SSH](#access-ssh)).
+
+{% if blocked %}
+> **Penting:** alamat-alamat ini berada di luar daftar izin, sehingga orang-orang ini terblokir sampai vendor menambahkan alamatnya dan menjalankan installer lagi: {% for b in blocked %}{{ b.name | md if b.name else NP }} ({{ b.ip | md }}){{ ", " if not loop.last else "." }}{% endfor %}{{ "" }}
+
+
+{% endif %}
+## Membuka file kredensial {#access-kdbx}
+
+Semua kata sandi ada dalam satu file terenkripsi (teracak, hanya bisa dibaca dengan kuncinya), yaitu **{{ kdbx_name }}**. File ini dibuka dengan KeePassXC, aplikasi pengelola kata sandi yang gratis. Frasa sandi pembukanya (kata sandi berupa 7 kata) disampaikan kepada Anda secara terpisah{{ (", melalui " ~ (delivery.passphrase_channel | md)) if delivery.get("passphrase_channel") }}{{ (", kepada " ~ (delivery.recipient | md)) if delivery.get("recipient") }}. Frasa sandi itu tidak pernah dikirim dalam pesan yang sama atau di flashdisk yang sama dengan filenya.
+
+### Memasang KeePassXC {#access-kdbx-install}
+
+Tujuan: KeePassXC terpasang di komputer Anda.
+
+{{ per_os("winget install KeePassXCTeam.KeePassXC", "brew install --cask keepassxc", "sudo apt install keepassxc") }}
+{% if win %}
+Di Windows, Anda juga bisa mengunduh installer (MSI) dari <https://keepassxc.org/download>. Nama paket winget di atas *(belum diuji)*.
+{% endif %}
+{% if "macos" in oses_shown %}
+Di macOS, Anda juga bisa mengunduh DMG dari <https://keepassxc.org/download>. Saat pertama kali dijalankan, bila macOS menolak membukanya, klik kanan aplikasinya lalu pilih "Open".
+{% endif %}
+{% if "linux" in oses_shown %}
+Di Linux, pilihan lainnya adalah `sudo dnf install keepassxc` (Fedora) atau `flatpak install flathub org.keepassxc.KeePassXC`. Di Debian 13 dan Ubuntu 26.04, nama paketnya mungkin `keepassxc-full`.
+{% endif %}
+
+Di ponsel, KeePassDX (Android), KeePassium atau Strongbox (iPhone) dapat membuka file ini untuk melihat isinya.
+
+**Yang seharusnya tampil:** KeePassXC ada di daftar aplikasi Anda.
+
+**Bila gagal:** di laptop kantor, Anda mungkin tidak diizinkan memasang aplikasi. Mintalah bantuan tim TI Anda, atau minta vendor memasangnya saat sesi serah terima.
+
+### Memeriksa file {#access-kdbx-hash}
+
+Tujuan: memastikan file yang Anda terima persis sama dengan yang tercantum di Berita Acara Serah Terima (BAST). Buka {{ "PowerShell atau Terminal" if (win and unix_os) else ("PowerShell" if win else "Terminal") }} di folder tempat file itu berada, lalu ketik:
+
+{{ per_os("Get-FileHash .\\" ~ kdbx_name ~ " -Algorithm SHA256", "shasum -a 256 " ~ kdbx_name, "sha256sum " ~ kdbx_name) }}
+**Yang seharusnya tampil:** kode panjang berisi 64 huruf dan angka. Kode itu harus sama dengan SHA-256 milik {{ kdbx_name }} di Lampiran 3 BAST.
+
+**Bila gagal:** bila kodenya berbeda, jangan pakai file itu. Mintalah salinan baru kepada vendor.
+
+### Membuka file dan menyalin kata sandi {#access-kdbx-open}
+
+Tujuan: membaca kata sandi tanpa mengetiknya dengan tangan.
+
+1. Buka KeePassXC, pilih "Open Database", lalu pilih {{ kdbx_name }}.
+2. Ketik 7 kata frasa sandi, dengan spasi di antara kata-katanya.
+3. Pilih grup di sebelah kiri (misalnya "{{ groups.web[first_lang] }}"), lalu klik salah satu entri.
+4. Salin kata sandinya dengan Ctrl+C (Cmd+C di Mac), lalu tempel di halaman login. KeePassXC menghapus isi clipboard (tempat salinan sementara) setelah beberapa detik.
+5. File di dalam entri (lampiran) ada di bagian "Attachments" entri tersebut: klik kanan untuk menyimpannya.
+
+Simpan cadangan file ini di flashdisk di tempat yang aman. Setelah serah terima, ganti frasa sandinya (menu "Database", lalu "Database Security") dan ganti kata sandi-kata sandinya{{ (" dalam " ~ pw_days ~ " hari") if pw_days }}, seperti dijelaskan dalam {{ doc_ref }}.
+
+**Yang seharusnya tampil:** grup dan entri di dalam file.
+
+**Bila gagal:** "Invalid credentials" berarti ada kata yang salah. Periksa ejaan dan spasinya, lalu coba lagi.
+
+## Alamat internet Anda {#access-ip}
+
+Tujuan: mengetahui alamat internet (alamat IP) koneksi Anda, karena sebagian halaman dan server hanya menerima alamat yang dikenal.
+
+{{ cmds("curl -4 https://ifconfig.me", "curl.exe -4 https://ifconfig.me") }}
+Anda juga bisa membuka <https://ifconfig.me> di browser. Layanan itu dijalankan oleh pihak ketiga.
+
+**Yang seharusnya tampil:** empat angka yang dipisah titik, misalnya 198.51.100.7.
+
+Sistem ini punya dua daftar alamat yang diizinkan (daftar izin atau allow-list):
+
+| Daftar               | Yang dilindungi                        | Alamat yang diizinkan saat ini                |
+|:---------------------|:---------------------------------------|:----------------------------------------------|
+| `ssh.allow_from`     | SSH, login ke server (port {{ f.ssh.port }}) | {{ f.ssh.allow_from | cidrs if f.ssh.allow_from else "Kosong: terbuka untuk siapa saja" }} |
+| `admin_allow_from`   | Halaman web admin                      | {{ f.admin_allow_from | cidrs if f.admin_allow_from else "Kosong: terbuka untuk siapa saja" }} |
+
+{% if not f.ssh.allow_from or not f.admin_allow_from %}
+Daftar yang kosong berarti sistem **terbuka untuk siapa saja** di internet{{ " untuk daftar itu" if (f.ssh.allow_from or f.admin_allow_from) }}: satu-satunya pelindung adalah kata sandi.
+{% endif %}
+{% if f.ssh.allow_from or f.admin_allow_from %}
+Bila daftar diisi, alamat yang tidak tercantum akan mendapat "403 Forbidden" di halaman admin, atau tidak mendapat jawaban (timeout) di SSH. Hal ini juga terjadi bila alamat internet rumah Anda berubah, bila Anda berada di balik proxy kantor, atau bila koneksi Anda hanya punya alamat IPv6.
+{% endif %}
+{% if dns.get("proxied") %}
+Ada jaringan pengiriman konten (CDN) di depan halaman web, sehingga sistem melihat alamat CDN, bukan alamat Anda. Dalam keadaan ini, daftar izin admin tidak bekerja seperti yang diharapkan.
+{% endif %}
+
+**Bila gagal:** hanya operator yang bisa menambahkan alamat: ia menambahkannya ke daftar di pengaturan installer (config.yml), lalu menjalankan installer lagi. Kirimkan alamat Anda kepada vendor atau operator Anda.
+
+{% if has_web %}
+## Halaman web {#access-web}
+
+### Memeriksa nama {#access-web-dns}
+
+Tujuan: memastikan komputer Anda menemukan halaman web sistem di bawah {{ f.domain }}.
+
+{% set probe = (web | first).host ~ "." ~ f.domain %}
+{{ cmds("ping -c 1 " ~ probe, "ping -n 1 " ~ probe) }}
+**Yang seharusnya tampil:** alamat {{ traefik_nodes | map(attribute="address") | join(" atau ") }}{{ (" (publik: " ~ (traefik_nodes | map(attribute="public_ip") | select | join(", ")) ~ ")") if traefik_nodes | map(attribute="public_ip") | select | list }}. Itulah server yang melayani halaman web. Balasan ping tidak wajib: sebagian jaringan memblokir ping, tetapi alamatnya harus benar.
+
+{% if dns.get("mode") == "internal" %}
+Nama-nama ini berasal dari DNS milik perusahaan Anda sendiri (semacam buku telepon internet), dengan satu catatan untuk setiap nama di bawah {{ f.domain }}.
+{% elif dns.get("mode") == "hosts" %}
+Tidak ada DNS untuk {{ f.domain }}, jadi Anda menambahkan nama-namanya ke file hosts di komputer Anda (langkah berikutnya).
+{% else %}
+Nama-nama ini berasal dari DNS publik (semacam buku telepon internet), dengan satu catatan untuk setiap nama di bawah {{ f.domain }}.
+{% endif %}
+
+**Bila gagal:** "could not find host" berarti nama itu tidak dikenal. {{ "Tambahkan baris hosts di bawah." if dns.get("mode") == "hosts" else "Minta vendor memeriksa catatan DNS-nya." }}
+
+{% if dns.get("mode") == "hosts" %}
+### Menambahkan nama ke file hosts {#access-web-hosts}
+
+Tujuan: memberi tahu komputer Anda alamat setiap halaman web, karena tidak ada DNS. Berikut baris-baris dari file hosts.txt:
+
+{% set t = traefik_nodes | first %}
+```text
+{% for w in web %}
+{{ t.public_ip or t.address }}  {{ w.host }}.{{ f.domain }}
+{% endfor %}
+```
+
+File hosts tidak mengenal wildcard (nama dengan tanda bintang), jadi setiap halaman punya barisnya sendiri, dan setiap nama hanya punya satu alamat: bila server itu mati, halaman-halamannya juga tidak bisa Anda buka. Catatan di DNS perusahaan adalah jalan keluar yang lebih baik; tanyakan kepada tim TI Anda.
+
+{% if win %}
+Windows (PowerShell): buka Notepad sebagai administrator, tempel baris-baris tadi di akhir file, simpan, lalu kosongkan cache nama. Laptop kantor sering memblokir langkah ini.
+
+```powershell
+Start-Process notepad "$env:SystemRoot\System32\drivers\etc\hosts" -Verb RunAs
+ipconfig /flushdns
+```
+
+{% endif %}
+{% if "macos" in oses_shown %}
+macOS (Terminal): buka file, tempel baris-baris tadi di akhir file, simpan dengan Ctrl+O lalu Enter, tutup dengan Ctrl+X, lalu kosongkan cache nama.
+
+```sh
+sudo nano /etc/hosts
+sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder
+```
+
+{% endif %}
+{% if "linux" in oses_shown %}
+Linux (Terminal): buka file, tempel baris-baris tadi di akhir file, simpan dengan Ctrl+O lalu Enter, tutup dengan Ctrl+X, lalu kosongkan cache nama (pada sistem yang memakai systemd-resolved).
+
+```sh
+sudo nano /etc/hosts
+resolvectl flush-caches
+```
+
+{% endif %}
+**Yang seharusnya tampil:** ping pada langkah di atas kini menunjukkan alamat yang benar.
+
+**Bila gagal:** browser yang mengaktifkan "secure DNS" mungkin melewati file hosts *(belum diuji)*. Matikan pengaturan itu di browser, atau tanyakan kepada tim TI Anda.
+
+{% endif %}
+### Sertifikat {#access-web-tls}
+
+{% if f.ca_file or client_ca %}
+Tujuan: membuat komputer Anda memercayai sertifikat sistem (bukti bahwa sebuah halaman benar-benar milik sistem ini). Sertifikat ini berasal dari otoritas sertifikat (CA) privat, jadi komputer Anda harus memercayai file **{{ slug }}-ca.crt** dari paket serah terima. Semua perintah di sini *(belum diuji)*.
+
+{% if win %}
+Windows: klik dua kali {{ slug }}-ca.crt, pilih "Install Certificate", lalu letakkan di "Trusted Root Certification Authorities". Atau di PowerShell:
+
+```powershell
+certutil -user -addstore Root {{ slug }}-ca.crt
+```
+
+Firefox di Windows hanya memakainya bila pengaturan `security.enterprise_roots.enabled` aktif (ketik `about:config` di bilah alamat).
+
+{% endif %}
+{% if "macos" in oses_shown %}
+macOS (Terminal):
+
+```sh
+security add-trusted-cert -r trustRoot \
+  -k ~/Library/Keychains/login.keychain-db {{ slug }}-ca.crt
+```
+
+{% endif %}
+{% if "linux" in oses_shown %}
+Linux (Terminal), di Debian atau Ubuntu:
+
+```sh
+sudo cp {{ slug }}-ca.crt /usr/local/share/ca-certificates/{{ slug }}.crt
+sudo update-ca-certificates
+```
+
+Di Fedora:
+
+```sh
+sudo cp {{ slug }}-ca.crt /etc/pki/ca-trust/source/anchors/
+sudo update-ca-trust
+```
+
+Chrome dan Firefox di Linux menyimpan daftarnya sendiri (paket libnss3-tools):
+
+```sh
+certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n {{ slug }} -i {{ slug }}-ca.crt
+```
+
+{% endif %}
+**Yang seharusnya tampil:** setelah browser dibuka ulang, halaman terbuka tanpa peringatan.
+
+**Bila gagal:** tutup semua jendela browser, lalu buka lagi. Bila peringatan masih muncul, tanyakan kepada vendor.
+
+{% elif f.tls == "selfsigned" %}
+Sistem ini tidak punya sertifikat yang dapat dipercaya komputer Anda (pengaturan "selfsigned"). Browser akan memberi peringatan di setiap halaman, dan muncul lagi setiap kali gateway (pintu masuk halaman web) dijalankan ulang. Hal ini memang sudah diperkirakan. Untuk tetap melanjutkan:
+
+- Chrome dan Edge: klik "Advanced", lalu "Proceed".
+- Firefox: klik "Advanced", lalu "Accept the Risk and Continue".
+- Safari: klik "Show Details", lalu "visit this website".
+
+{% if f.admin_sso == "keycloak" %}
+Dengan login Keycloak, peringatan akan muncul di oauth.{{ f.domain }}, di keycloak.{{ f.domain }}, dan di halaman itu sendiri.
+{% endif %}
+Peringatan ini aman dilewati hanya untuk alamat yang ada di tabel di bawah. Saran: gunakan sertifikat sungguhan (pengaturan "custom", atau server ACME privat); lihat masalah yang diketahui dalam {{ doc_ref }}.
+
+{% elif f.tls == "custom" %}
+Sistem ini memakai sertifikatnya sendiri{{ (", berlaku sampai " ~ f.tls_cert.not_after) if f.tls_cert }}. Bila sertifikat itu berasal dari otoritas publik, tidak ada yang perlu dilakukan. Bila berasal dari otoritas milik perusahaan Anda sendiri, tim TI Anda yang memasang otoritas itu di laptop-laptop.
+
+{% else %}
+Sertifikatnya berasal dari Let's Encrypt, sebuah otoritas publik. Browser Anda sudah memercayainya: tidak ada yang perlu dilakukan.
+
+{% endif %}
+### Daftar halaman {#access-web-pages}
+
+Tujuan: mengetahui halaman apa saja yang ada, siapa yang bisa membukanya, dan entri mana di file kredensial yang berisi loginnya.
+
+| Alamat                                   | Aplikasi         | Siapa yang bisa membuka   | Login                       | Entri di file kredensial             |
+|:-----------------------------------------|:-----------------|:--------------------------|:----------------------------|:-------------------------------------|
+{% for ap in f.apps %}
+{% for w in ap.web %}
+| <{{ w.url }}> | {{ ap.name }} | {{ "Siapa saja" if w.guard == "public" else ("Siapa saja (daftar izin kosong)" if not f.admin_allow_from else "Hanya alamat yang diizinkan") }} | {{ {"own": "Login milik aplikasi", "layer": "Login admin (" ~ layer ~ ")", "none": "Tidak ada"}[w.login] }} | {{ entry(layer_secret) if w.login == "layer" else (app_entries(ap.name) if w.login == "own" else "Tidak ada") }} |
+{% endfor %}
+{% endfor %}
+{% for x in extra_apps %}
+| {{ ("<" ~ x.url ~ ">") if x.url else NP }} | {{ x.name | md if x.name else NP }} | {{ NP }} | {{ NP }} | {{ NP }} |
+{% endfor %}
+
+**Yang seharusnya tampil:** halaman login aplikasi, atau lebih dulu login admin ({{ layer }}).
+
+**Bila gagal:** "403 Forbidden" berarti alamat internet Anda tidak ada di daftar izin admin (lihat [Alamat internet Anda](#access-ip)). Halaman yang tidak pernah termuat biasanya berarti ada masalah nama (lihat [Memeriksa nama](#access-web-dns)).
+
+{% if f.admin_sso %}
+### Login pertama dan 2FA {#access-web-2fa}
+
+Tujuan: menyiapkan faktor kedua (2FA): kode 6 angka dari aplikasi di ponsel Anda, yang diminta setelah kata sandi. Lakukan ini saat sesi serah terima, bersama vendor.
+
+1. Pasang aplikasi autentikator di ponsel Anda: Aegis, Google Authenticator atau Microsoft Authenticator.
+{% if f.admin_sso == "authelia" %}
+2. Login di <https://authelia.{{ f.domain }}/> dengan user dan kata sandi dari "{{ entry("authelia_admin") }}".
+3. Pilih untuk mendaftarkan perangkat. Authelia tidak punya server email: operator membaca kode pendaftarannya di server pertama:
+
+```sh
+ssh -t {{ mgr }} sudo cat /opt/ansibro/authelia/config/notification.txt
+```
+
+4. Pindai kode QR dengan aplikasi autentikator, lalu ketik kode 6 angkanya.
+{% else %}
+2. Buka salah satu halaman admin. Login Keycloak meminta user admin dan kata sandi dari "{{ entry("keycloak_sso_admin") }}".
+3. Pada login pertama, Keycloak menampilkan kode QR. Pindai dengan aplikasi autentikator, lalu ketik kode 6 angkanya.
+4. Bila vendor sudah mendaftarkan ponselnya sendiri untuk user ini, minta vendor mengatur ulangnya lebih dulu.
+{% endif %}
+
+**Yang seharusnya tampil:** halaman admin terbuka setelah kode dimasukkan.
+
+**Bila gagal:** pastikan jam di ponsel Anda tepat; kode-kode ini bergantung pada waktu.
+
+{% endif %}
+{% endif %}
+## SSH: login ke server {#access-ssh}
+
+Bagian ini untuk operator. SSH (Secure Shell) adalah cara aman untuk mengetik perintah di server. Anda login dengan kunci: sepasang file, satu privat (tetap di laptop Anda) dan satu publik (dipasang di server). Kunci milik vendor sendiri tidak pernah diserahkan.
+
+### Memeriksa program SSH {#access-ssh-client}
+
+Tujuan: memastikan komputer Anda punya program OpenSSH.
+
+{{ per_os("ssh -V", "ssh -V", "ssh -V") }}
+**Yang seharusnya tampil:** sebuah versi, misalnya "OpenSSH_9.6".
+
+**Bila gagal:** {% if win %}di Windows, pasang dari PowerShell yang dibuka sebagai administrator: `Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0`. {% endif %}{% if "linux" in oses_shown %}Di Linux, pasang dengan `sudo apt install openssh-client`. {% endif %}{% if "macos" in oses_shown %}macOS selalu sudah memilikinya. {% endif %}Gunakan OpenSSH, bukan PuTTY: PuTTY membutuhkan format kunci tersendiri.
+
+{% if ssh_handover == "generated" %}
+### Menyimpan kunci Anda {#access-ssh-key}
+
+Tujuan: menaruh kunci yang dibuatkan vendor untuk Anda di tempat yang benar. Kunci itu adalah lampiran {{ slug }}_ed25519 pada entri "{{ groups.infra[first_lang] }}/SSH key (client)" di file kredensial. Simpan dengan nama ini:
+
+{{ cmds("mkdir -p ~/.ssh\n# save the attachment as ~/.ssh/" ~ slug ~ "_ed25519, then:\nchmod 600 ~/.ssh/" ~ slug ~ "_ed25519", "New-Item -ItemType Directory -Force \"$env:USERPROFILE\\.ssh\"\n# save the attachment as $env:USERPROFILE\\.ssh\\" ~ slug ~ "_ed25519") }}
+**Yang seharusnya tampil:** file {{ slug }}_ed25519 ada di folder .ssh Anda.
+
+**Bila gagal:** bila lampirannya tidak ada, tanyakan kepada vendor.
+
+{% else %}
+### Membuat kunci sendiri {#access-ssh-key}
+
+Tujuan: membuat pasangan kunci Anda, lalu mengirim hanya bagian publiknya (file berakhiran .pub) kepada vendor.
+
+{{ cmds("mkdir -p ~/.ssh\nssh-keygen -t ed25519 -f ~/.ssh/" ~ slug ~ "_ed25519 -C \"your name\"", "New-Item -ItemType Directory -Force \"$env:USERPROFILE\\.ssh\"\nssh-keygen -t ed25519 -f $env:USERPROFILE\\.ssh\\" ~ slug ~ "_ed25519 -C \"your name\"") }}
+Saat diminta, pilih frasa sandi untuk kunci itu; frasa sandi melindungi kunci bila laptop Anda hilang. Ganti "your name" dengan nama Anda.
+
+**Yang seharusnya tampil:** dua file baru: {{ slug }}_ed25519 (privat: jangan pernah dikirim) dan {{ slug }}_ed25519.pub (publik: kirim file ini kepada vendor).
+
+**Bila gagal:** "No such file or directory" berarti folder .ssh belum ada: jalankan lagi baris pertama.
+
+### Vendor memasang kunci Anda {#access-ssh-add}
+
+Tujuan: vendor memasang kunci publik Anda di setiap server. ansibro tidak melakukan ini, jadi operator melakukannya dengan tangan, sekali per server, dengan aksesnya sendiri:
+
+```sh
+cat {{ slug }}_ed25519.pub | ssh -p {{ f.ssh.port }} {{ f.ssh.user }}@<server> \
+  "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys \
+  && chmod 600 ~/.ssh/authorized_keys"
+```
+
+`<server>` adalah setiap alamat di tabel berikutnya. Langkah ini adalah salah satu baris daftar uji terima (Lampiran 1 BAST).
+
+{% endif %}
+### Menambahkan pengaturan SSH {#access-ssh-config}
+
+Tujuan: memberi setiap server nama pendek, sehingga Anda cukup mengetik `ssh {{ mgr }}`. File **ssh_config.txt** dari paket serah terima berisi pengaturannya; tambahkan ke akhir file pengaturan SSH Anda:
+
+{{ cmds("cat ssh_config.txt >> ~/.ssh/config", "Get-Content .\\ssh_config.txt |\n  Add-Content -Encoding ascii \"$env:USERPROFILE\\.ssh\\config\"") }}
+Hasilnya adalah nama-nama berikut:
+
+| Nama                        | Server          | Alamat            | Melalui                       |
+|:----------------------------|:----------------|:------------------|:------------------------------|
+{% for n in reach %}
+| `{{ n.alias }}` | {{ n.name }} | {{ n.address }} | {{ ("`" ~ n.jump ~ "`") if n.jump and n.jump != n.alias else "Langsung" }} |
+{% endfor %}
+
+Setiap nama login sebagai {{ f.ssh.user }} di port {{ f.ssh.port }}, dengan kunci ~/.ssh/{{ slug }}_ed25519.
+{% if reach | selectattr("jump") | list %}
+Server tanpa alamat publik dijangkau melalui server lain (kolom "Melalui"){{ "; karena ssh.allow_from diisi, alamat server perantara itu juga harus ada di daftar" if f.ssh.allow_from }}.
+{% endif %}
+{% if "macos" in oses_shown %}
+Di macOS, Anda bisa menambahkan dua baris di bawah setiap baris `Host` agar frasa sandi kunci disimpan di Keychain: `UseKeychain yes` dan `AddKeysToAgent yes`.
+{% endif %}
+
+**Yang seharusnya tampil:** baris-baris `Host` di akhir file.
+
+**Bila gagal:** bila sebelumnya sudah ada `Host` dengan nama yang sama, hapus yang lama.
+
+### Koneksi pertama {#access-ssh-first}
+
+Tujuan: login sekali ke server pertama dan memastikan bahwa server itu asli.
+
+{{ cmds("ssh " ~ mgr, "ssh " ~ mgr) }}
+{% set fps = (check.get("servers") if check else None) or {} %}
+Pada koneksi pertama, SSH menampilkan sidik jari (fingerprint) server, yaitu kode yang diawali SHA256:, lalu bertanya apakah akan dilanjutkan. Bandingkan dengan tabel ini, lalu ketik `yes`. Bila berbeda, ketik `no` dan hubungi vendor.
+
+| Server          | Sidik jari kunci host                                                         |
+|:----------------|:------------------------------------------------------------------------------|
+{% for n in reach %}
+{% set fp = (fps.get(n.name) or {}).get("fingerprint") %}
+| {{ n.name }} | {{ ("`" ~ fp ~ "`") if fp else "Belum diperiksa" }} |
+{% endfor %}
+
+{% set fpn = namespace(any=false) %}
+{% for k in fps %}{% if (fps[k] or {}).get("fingerprint") %}{% set fpn.any = true %}{% endif %}{% endfor %}
+{% if not fpn.any %}
+Sidik jari ini belum diperiksa oleh uji terima. Minta vendor membacakannya dari setiap server dengan `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`.
+
+{% endif %}
+
+**Yang seharusnya tampil:** prompt seperti `{{ f.ssh.user }}@{{ first.name }}:~$`. Ketik `exit` untuk keluar. Perintah untuk sistem perlu diawali `sudo`, karena file-filenya di /opt/ansibro milik administrator (root).
+
+**Bila gagal:**
+
+- "Permission denied (publickey)": kunci Anda belum terpasang di server itu, atau nama file kuncinya salah.
+- "Connection timed out": alamat Anda tidak ada di ssh.allow_from, atau firewall penyedia server memblokir port {{ f.ssh.port }}.
+- "UNPROTECTED PRIVATE KEY FILE": file kunci bisa dibaca orang lain. Perbaiki dengan:
+
+{{ cmds("chmod 600 ~/.ssh/" ~ slug ~ "_ed25519", "icacls $env:USERPROFILE\\.ssh\\" ~ slug ~ "_ed25519 /inheritance:r `\n  /grant:r \"$($env:USERNAME):(R)\"") }}
+### Mengingat frasa sandi kunci {#access-ssh-agent}
+
+Tujuan: mengetik frasa sandi kunci sekali per sesi, tidak di setiap login.
+
+{{ per_os("Get-Service ssh-agent | Set-Service -StartupType Automatic\nStart-Service ssh-agent\nssh-add $env:USERPROFILE\\.ssh\\" ~ slug ~ "_ed25519", "ssh-add --apple-use-keychain ~/.ssh/" ~ slug ~ "_ed25519", "ssh-add ~/.ssh/" ~ slug ~ "_ed25519") }}
+{% if win %}
+Di Windows, dua baris pertama perlu PowerShell yang dibuka sebagai administrator.
+{% endif %}
+
+**Yang seharusnya tampil:** "Identity added".
+
+**Bila gagal:** "Could not open a connection to your authentication agent" berarti agent (program penyimpan kunci) tidak berjalan{{ ": jalankan baris-baris Windows di atas sebagai administrator" if win }}.
+
+{% if f.tunnels %}
+## Database dan layanan lain: tunnel SSH {#access-tunnel}
+
+Database dan layanan sejenis hanya mendengarkan di dalam cluster (kumpulan server), dan lalu lintas datanya tidak terenkripsi. Untuk menjangkaunya, Anda membuka tunnel SSH: pipa pribadi melalui SSH dari laptop Anda ke server. Tunnel ini sekaligus mengenkripsi lalu lintasnya.
+
+### Menjalankan tunnel {#access-tunnel-start}
+
+Tujuan: membuka semua pipa sekaligus dengan nama `{{ slug }}-tunnel` dari ssh_config.txt.
+
+{{ cmds("ssh -N " ~ slug ~ "-tunnel", "ssh -N " ~ slug ~ "-tunnel") }}
+Biarkan jendela ini terbuka selama Anda bekerja; tutup (Ctrl+C) bila sudah selesai. Lalu hubungkan alat Anda ke 127.0.0.1 (laptop Anda sendiri) dan port di tabel ini:
+
+| Layanan              | Server        | Di server                | Di laptop Anda          |
+|:---------------------|:--------------|:-------------------------|:------------------------|
+{% for t in f.tunnels %}
+| {{ t.use }} | {{ t.node }} | {{ t.ip }}:{{ t.port }} | 127.0.0.1:{{ t.local }} |
+{% endfor %}
+
+**Yang seharusnya tampil:** tidak ada apa-apa: tidak ada prompt, dan jendelanya tetap terbuka. Itu berarti tunnel bekerja.
+
+**Bila gagal:** "Address already in use" atau "port forwarding failed" berarti ada program lain di laptop Anda yang memakai port itu. Tutup program tersebut, atau ubah angka pertama pada baris `LocalForward` yang bersangkutan di pengaturan SSH Anda.
+{% if f.wireguard %}
+Server-server saling terhubung melalui WireGuard (jaringan terenkripsi khusus antarserver; laptop Anda tidak bisa ikut bergabung). SSH menuju alamat publik, dan tunnel menjangkau alamat WireGuard; pengaturannya sudah mengatur hal ini.
+{% endif %}
+
+### Menghubungkan alat Anda {#access-tunnel-tools}
+
+Tujuan: memakai database atau layanan melalui tunnel. Kata sandinya ada di grup "{{ groups.data[first_lang] }}"{{ (" dan \"" ~ groups.storage[first_lang] ~ "\"") if (has("garage") or has("rustfs")) }} di file kredensial.
+
+{% if has("postgres") %}
+{% set pg = f.tunnels | selectattr("app", "equalto", "postgres") | list %}
+{% if pg | length > 1 %}
+{% set pg_cmd %}
+psql "host={% for t in pg %}127.0.0.1{{ "," if not loop.last }}{% endfor %}{{ "" }}
+      port={% for t in pg %}{{ t.local }}{{ "," if not loop.last }}{% endfor %}{{ "" }} user=postgres
+      target_session_attrs=read-write"
+{% endset %}
+{% else %}
+{% set pg_cmd = 'psql "host=127.0.0.1 port=' ~ pg[0].local ~ ' user=postgres"' %}
+{% endif %}
+PostgreSQL{{ " *(belum diuji)*" if pg | length > 1 }}:
+
+{{ cmds(pg_cmd | trim, pg_cmd | trim) }}
+{% if pg | length > 1 %}
+Server utama (primary) bisa berpindah di antara {{ pg | map(attribute="node") | join(", ") }}; baris ini mencoba setiap port dan memakai port yang menerima perubahan data.
+
+{% endif %}
+{% endif %}
+{% if has("mariadb") %}
+MariaDB:
+
+{{ cmds("mariadb -h 127.0.0.1 -P " ~ tunnel_port("mariadb") ~ " -u root -p", "mariadb -h 127.0.0.1 -P " ~ tunnel_port("mariadb") ~ " -u root -p") }}
+{% endif %}
+{% for c in ["redis", "valkey"] if has(c) %}
+{% set rs = f.tunnels | selectattr("app", "equalto", c) | list %}
+{{ "Redis" if c == "redis" else "Valkey" }} *(belum diuji)*:
+
+{{ cmds("redis-cli -h 127.0.0.1 -p " ~ rs[0].local ~ " --askpass", "redis-cli -h 127.0.0.1 -p " ~ rs[0].local ~ " --askpass") }}
+{% if rs | length > 1 %}
+Dengan {{ rs | length }} server, hanya server utama (primary) yang menerima perubahan, dan server utama itu bisa berpindah. Cari dulu yang mana; jawabannya berupa alamat server dari tabel di atas, jadi pakai port laptop pada baris tersebut:
+
+{{ cmds("ssh " ~ slug ~ "-" ~ rs[0].node ~ " \"sudo docker exec " ~ c ~ "-sentinel " ~ c ~ "-cli -p 26379 \\\n  sentinel get-master-addr-by-name ansibro\"", "ssh " ~ slug ~ "-" ~ rs[0].node ~ " (\"sudo docker exec " ~ c ~ "-sentinel " ~ c ~ "-cli -p 26379 \" +\n  \"sentinel get-master-addr-by-name ansibro\")") }}
+{% endif %}
+{% endfor %}
+{% if has("garage") %}
+Garage (penyimpanan file S3). Access key-nya diawali GK; region-nya garage. Masukkan dulu kunci dari "{{ groups.storage[first_lang] }}/Garage S3" ke `aws configure`:
+
+{% set c = "aws --endpoint-url http://127.0.0.1:" ~ tunnel_port("garage") ~ " --region garage s3 ls" %}
+{{ cmds(c, c) }}
+{% endif %}
+{% if has("rustfs") %}
+RustFS (penyimpanan file S3): cara termudah adalah konsol webnya di <https://rustfs.{{ f.domain }}/rustfs/console/>. Dari baris perintah *(belum diuji)*:
+
+{% set c = "aws --endpoint-url http://127.0.0.1:" ~ tunnel_port("rustfs") ~ " s3 ls" %}
+{{ cmds(c, c) }}
+{% endif %}
+{% if has("rabbitmq") %}
+RabbitMQ: program Anda terhubung dengan AMQP ke 127.0.0.1:{{ tunnel_port("rabbitmq") }}, user admin. Halaman webnya <https://rabbitmq.{{ f.domain }}/>.
+
+{% endif %}
+{% if has("nats") %}
+NATS: program Anda terhubung ke nats://127.0.0.1:{{ tunnel_port("nats") }}, user admin *(belum diuji)*.
+
+{% endif %}
+{% if has("openbao") %}
+OpenBao (tempat penyimpanan rahasia): cara termudah adalah halaman webnya <https://openbao.{{ f.domain }}/ui/>, dengan token dari "{{ entry("openbao_root_token") }}". Dari baris perintah *(belum diuji)*:
+
+{{ cmds("export BAO_ADDR=http://127.0.0.1:" ~ tunnel_port("openbao") ~ "\nbao login", "$env:BAO_ADDR = \"http://127.0.0.1:" ~ tunnel_port("openbao") ~ "\"\nbao login") }}
+{% endif %}
+Program berjendela (DBeaver, TablePlus, RedisInsight, WinSCP, Cyberduck) bekerja dengan cara yang sama: jalankan tunnel, lalu hubungkan ke host 127.0.0.1 dan port laptop. Program-program itu juga bisa membuat tunnel sendiri: di pengaturan SSH-nya, pakai host {{ tunnel_host.address }}, port {{ f.ssh.port }}, user {{ f.ssh.user }} dan file kunci Anda; lalu hubungkan ke alamat "Di server" dari tabel.
+
+**Yang seharusnya tampil:** alat terhubung dan meminta kata sandi, atau langsung menampilkan data.
+
+**Bila gagal:** "connection refused" berarti tunnel tidak berjalan. Jalankan lagi di jendelanya sendiri.
+
+{% endif %}
+## Mengelola cluster {#access-cluster}
+
+{% if f.orchestrator == "swarm" %}
+### Docker Swarm {#access-cluster-swarm}
+
+Tujuan: melihat dan mengelola aplikasi yang berjalan (service).
+
+{% if has("portainer") or has("swarmpit") %}
+Cara termudah adalah lewat browser: {% if has("portainer") %}Portainer di <https://portainer.{{ f.domain }}/>{% endif %}{% if has("portainer") and has("swarmpit") %} atau {% endif %}{% if has("swarmpit") %}Swarmpit di <https://swarmpit.{{ f.domain }}/>{% endif %}.
+
+{% endif %}
+Dari baris perintah, di server pertama:
+
+{{ cmds("ssh -t " ~ mgr ~ " sudo docker service ls", "ssh -t " ~ mgr ~ " sudo docker service ls") }}
+**Yang seharusnya tampil:** daftar service, masing-masing dengan "REPLICAS" seperti 1/1.
+
+**Bila gagal:** lihat [SSH](#access-ssh). Koneksi Docker jarak jauh (`docker context create {{ slug }} --docker host=ssh://{{ mgr }}`) hanya bekerja bila user SSH boleh memakai Docker tanpa sudo. ansibro tidak mengatur hal ini, dan akses itu memberi kendali penuh atas server, jadi vendor yang memutuskan.
+
+{% else %}
+### Kubernetes (k3s) {#access-cluster-k3s}
+
+Tujuan: memakai kubectl, perintah Kubernetes, dari laptop Anda. API cluster (port 6443) tertutup bagi laptop, jadi kubectl lewat tunnel SSH.
+
+1. Pasang kubectl, dengan versi yang selisihnya paling banyak satu versi minor dari k3s ({{ f.versions.k3s or NP }}).
+
+{{ per_os("winget install -e --id Kubernetes.kubectl", "brew install kubectl", None) }}
+{% if win %}
+Nama paket winget di atas *(belum diuji)*.
+{% endif %}
+{% if "linux" in oses_shown %}
+Di Linux, pasang dengan snap atau dengan file program resmi dari kubernetes.io.
+{% endif %}
+
+2. Salin file akses cluster (kubeconfig). File ini rahasia: isinya memberi kendali penuh atas cluster, jadi file ini tetap di laptop Anda.
+
+{{ cmds("mkdir -p ~/.kube\nssh " ~ mgr ~ " \"sudo cat /etc/rancher/k3s/k3s.yaml\" > ~/.kube/" ~ slug ~ ".yaml", "mkdir -Force $HOME\\.kube\nssh " ~ mgr ~ " \"sudo cat /etc/rancher/k3s/k3s.yaml\" |\n  Set-Content -Encoding ascii $HOME\\.kube\\" ~ slug ~ ".yaml") }}
+{% if win %}
+Di Windows PowerShell 5.1, `>` menulis dalam format yang tidak bisa dibaca kubectl, karena itu dipakai `Set-Content` *(belum diuji)*.
+{% endif %}
+
+3. Arahkan ke tunnel (port {{ tunnel_port("k3s") }} di laptop Anda):
+
+{{ cmds("kubectl config set-cluster default --server=https://127.0.0.1:" ~ tunnel_port("k3s") ~ " \\\n  --kubeconfig ~/.kube/" ~ slug ~ ".yaml", "kubectl config set-cluster default --server=https://127.0.0.1:" ~ tunnel_port("k3s") ~ " `\n  --kubeconfig $HOME\\.kube\\" ~ slug ~ ".yaml") }}
+4. Jalankan tunnel (`ssh -N {{ slug }}-tunnel`, lihat [tunnel](#access-tunnel)) di jendelanya sendiri, lalu:
+
+{{ cmds("kubectl --kubeconfig ~/.kube/" ~ slug ~ ".yaml get nodes", "kubectl --kubeconfig $HOME\\.kube\\" ~ slug ~ ".yaml get nodes") }}
+**Yang seharusnya tampil:** daftar server, masing-masing berstatus Ready.
+
+**Bila gagal:** "connection refused" berarti tunnel tidak berjalan. Galat sertifikat berarti langkah 3 terlewat.
+{% if f.database and f.database.ha %}
+
+Untuk menjangkau database melalui database-proxy milik cluster, yang selalu mengarah ke server utama (pakai port laptop lain selama tunnel berjalan, karena port {{ tunnel_port(f.database.app) }} sudah terpakai):
+
+{{ cmds("kubectl --kubeconfig ~/.kube/" ~ slug ~ ".yaml -n ansibro \\\n  port-forward svc/database-proxy 25432:" ~ f.database.port, "kubectl --kubeconfig $HOME\\.kube\\" ~ slug ~ ".yaml -n ansibro `\n  port-forward svc/database-proxy 25432:" ~ f.database.port) }}
+{% endif %}
+{% if has("portainer") %}
+
+Portainer di <https://portainer.{{ f.domain }}/> juga bisa mengelola cluster dari browser.
+{% endif %}
+
+{% endif %}
+### Image milik Anda sendiri {#access-cluster-images}
+
+Tujuan: menjalankan image (paket aplikasi siap jalan) milik Anda sendiri. Registry image ({{ f.registry_addr }}) hanya bisa dijangkau dari server, jadi Anda mengirim image lewat SSH lalu mendorongnya (push) di server pertama:
+
+{{ cmds("docker save app:1 | ssh " ~ mgr ~ " \"sudo docker load\"\nssh " ~ mgr ~ " \"sudo docker tag app:1 " ~ f.registry_addr ~ "/app:1 && \\\n  sudo docker push " ~ f.registry_addr ~ "/app:1\"", "docker save app:1 | ssh " ~ mgr ~ " \"sudo docker load\"\nssh " ~ mgr ~ " (\"sudo docker tag app:1 " ~ f.registry_addr ~ "/app:1 && \" +\n  \"sudo docker push " ~ f.registry_addr ~ "/app:1\")") }}
+`app:1` adalah nama dan versi image Anda.{% if "macos" in oses_shown %} Di Mac dengan Apple Silicon, buat image dengan `--platform linux/amd64`: server memakai prosesor Intel atau AMD.{% endif %} Registry tidak termasuk dalam backup: setelah pemulihan (restore), push lagi image Anda.
+
+{% if show_successor %}
+## Penerus: menjalankan installer {#access-successor}
+
+Bagian ini untuk orang yang akan mengubah sistem dengan ansibro (installer) setelah serah terima. Dibutuhkan macOS atau Linux; Windows tidak didukung (WSL2 *belum diuji*). Selalu jalankan installer dari satu komputer yang sama ini.
+
+1. Pasang git, Python 3.12 atau lebih baru, dan age (`brew install age` di macOS, `sudo apt install age` di Ubuntu).
+2. Ambil ansibro dan pindah ke versi yang dipakai untuk membangun sistem ini ({{ f.ansibro.version or NP }}):
+
+```sh
+git clone https://github.com/sgnd/ansibro.git
+cd ansibro
+git tag --list
+```
+
+   Lalu jalankan `git checkout` ke tag versi {{ f.ansibro.version or NP }}.
+
+3. Simpan lampiran ansibro-installer.tar.gz dari entri "{{ groups.internal[first_lang] }}/ansibro installer files" ke folder itu, lalu buka arsipnya:
+
+```sh
+tar -xzf ansibro-installer.tar.gz
+chmod 700 state
+```
+
+4. Opsional: buat kunci agar catatan installer tetap terenkripsi (state.age):
+
+```sh
+mkdir -p ~/.config/ansibro && age-keygen -o ~/.config/ansibro/age.key
+```
+
+5. Jalankan installer, lalu uji sistem:
+
+```sh
+./install.sh {{ f.config }}.yml
+.venv/bin/python tests/check.py
+```
+
+**Yang seharusnya tampil:** installer selesai tanpa "failed", dan uji sistem menampilkan baris-baris PASS.
+
+**Bila gagal:** kata sandi di lampiran itu adalah kata sandi pada hari serah terima. Setelah kata sandi diganti, masukkan dulu nilai barunya ke file yang sesuai di state/secrets/, seperti dijelaskan dalam {{ doc_ref }}.
+
+{% endif %}
+## Mengatasi masalah {#access-trouble}
+
+| Masalah                                 | Yang perlu dilakukan                                                  |
+|:----------------------------------------|:----------------------------------------------------------------------|
+{% if has_web %}
+| "403 Forbidden" di halaman web          | Alamat Anda tidak ada di daftar izin admin. Lihat [Alamat internet Anda](#access-ip). |
+| Peringatan sertifikat                   | Lihat [Sertifikat](#access-web-tls). |
+{% endif %}
+| SSH: "Connection timed out"             | Alamat Anda tidak ada di ssh.allow_from, atau firewall penyedia server memblokir port-nya. |
+| SSH: "Permission denied (publickey)"    | Kunci Anda belum terpasang di server itu, atau nama file kunci di pengaturan salah. |
+{% if f.tunnels %}
+| Tunnel: "Address already in use"        | Ada program lain yang memakai port laptop itu. Tutup program itu, atau ganti port-nya. |
+{% endif %}
+{% if has("openbao") %}
+| OpenBao menyatakan "sealed"             | Setelah dijalankan ulang, OpenBao terkunci. Buka kuncinya di halaman webnya dengan "{{ entry("openbao_unseal_key") }}", atau operator menjalankan installer lagi. |
+{% endif %}
+| Tidak ada lagi yang bisa login ke server | Operator membuka konsol web penyedia server, menjalankan `sudo ufw disable`, memperbaiki daftar, lalu menjalankan installer lagi. |
+
+Bila Anda buntu, hubungi vendor{% if support.get("hours") %} ({{ support.hours | md }}){% endif %}. Jangan pernah mengirim kata sandi lewat email atau chat.
+
+{% if support.get("contacts") %}
+| Nama                     | Peran                 | Telepon                | Email                          |
+|:-------------------------|:----------------------|:-----------------------|:-------------------------------|
+{% for c in support.contacts %}
+| {{ c.name | md if c.name else NP }} | {{ c.role | md if c.role else NP }} | {{ c.phone | md if c.phone else NP }} | {{ c.email | md if c.email else NP }} |
+{% endfor %}
+{% else %}
+Kontak dukungan: {{ NP }}.
+{% endif %}

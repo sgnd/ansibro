@@ -1,0 +1,58 @@
+{## The standalone laptop guide for one OS (only_os). The body is en/laptop.md.j2. ##}
+{% set NP = "Not provided" %}
+{% set osname = {"windows": "Windows", "macos": "macOS", "linux": "Linux"} %}
+{% set system = a.get("environment") or f.domain %}
+{% set doc = a.get("document") or {} %}
+{% set bast = a.get("bast") or {} %}
+{% set client = a.get("client") or {} %}
+{% set vendor = a.get("vendor") or {} %}
+{% set dns = a.get("dns") or {} %}
+{% set client_ca = (a.get("tls") or {}).get("client_ca") %}
+{% set docnumber = doc.get("number") or NP %}
+{% set docversion = doc.get("version") or "1.0" %}
+{% set docclass = doc.get("classification") or "CONFIDENTIAL" %}
+{% set docdate = (bast.date | date) if bast.get("date") else NP %}
+{% set mine = people | selectattr("os", "equalto", only_os) | list %}
+---
+title: {{ "Laptop Access Guide" | q }}
+subtitle: {{ (osname[only_os] ~ " · " ~ system) | q }}
+short-title: {{ ("Laptop Access Guide (" ~ osname[only_os] ~ ")") | q }}
+lang: en
+docnumber: {{ docnumber | q }}
+version: {{ docversion | q }}
+date: {{ (docdate if bast.get("date") else (today | date)) | q }}
+classification: {{ docclass | q }}
+numbered: true
+{% if draft %}
+draft: true
+{% endif %}
+labels: {page: "Page", of: "of", toc: "Contents"}
+cover:
+  kicker: {{ "LAPTOP ACCESS GUIDE" | q }}
+{% if logo.vendor %}
+  logo: {{ logo.vendor | q }}
+{% endif %}
+  rows:
+    - {label: "Client", value: {{ (client.get("name") or NP) | q }}}
+    - {label: "Vendor", value: {{ (vendor.get("name") or NP) | q }}}
+    - {label: "System", value: {{ (system ~ " (" ~ f.domain ~ ")" if a.get("environment") else f.domain) | q }}}
+    - {label: "Laptop", value: {{ osname[only_os] | q }}}
+    - {label: "Document number", value: {{ docnumber | q }}}
+    - {label: "Version", value: {{ docversion | q }}}
+    - {label: "Date", value: {{ docdate | q }}}
+    - {label: "Classification", value: {{ docclass | q }}}
+  footer: {{ ("Made with dejavu " ~ dejavu ~ " from ansibro " ~ (f.ansibro.version or "?") ~ ". This guide contains no passwords; they are only in the encrypted credentials file.") | q }}
+---
+
+# Access from your laptop ({{ osname[only_os] }}) {#guide}
+
+This guide shows how to reach {{ system | md }} ({{ f.domain }}) of {{ client.name | md if client.get("name") else NP }} from a {{ osname[only_os] }} laptop: the web pages, the passwords and, for operators, the servers. It is part of the handover by {{ vendor.name | md if vendor.get("name") else NP }}. The technical documentation has the full details.
+
+{% if mine %}
+It is meant for: {% for p in mine %}{{ p.name | md if p.name else NP }}{{ ", " if not loop.last else "." }}{% endfor %}
+
+
+{% endif %}
+You need these files from the handover pack: the credentials file, ssh_config.txt{{ ", hosts.txt" if dns.get("mode") == "hosts" }}{{ (", " ~ slug ~ "-ca.crt") if f.ca_file or client_ca }}, and the passphrase, which is given to you separately.
+
+{% include "en/laptop.md.j2" %}

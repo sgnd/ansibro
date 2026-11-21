@@ -1,0 +1,14 @@
+# How a laptop reaches {{ f.domain }}, made by dejavu {{ dejavu }}.
+direction: right
+laptop: {{ {"id": "Laptop Anda", "en": "Your laptop"} | t | q }} {shape: person}
+{% if f.traefik_nodes %}
+web: {{ ({"id": "Halaman web", "en": "Web pages"} | t ~ "\nhttps://*." ~ f.domain) | q }}
+laptop -> web: {{ ("HTTPS 443" ~ ({"id": "\nhanya IP terdaftar", "en": "\nlisted IPs only"} | t if f.admin_allow_from else "")) | q }}
+{% endif %}
+{% set j = reach | selectattr("direct") | first | default(reach[0]) %}
+ssh: {{ ("SSH " ~ j.name ~ "\n" ~ j.address ~ ":" ~ f.ssh.port) | q }}
+laptop -> ssh: {{ ({"id": "kunci SSH", "en": "SSH key"} | t ~ ({"id": "\nhanya IP terdaftar", "en": "\nlisted IPs only"} | t if f.ssh.allow_from else "")) | q }}
+{% if f.tunnels %}
+private: {{ ({"id": "Layanan privat", "en": "Private services"} | t ~ "\n" ~ (f.tunnels | map(attribute="use") | unique | join(", "))) | q }} {shape: cylinder}
+ssh -> private: {{ {"id": "terowongan SSH", "en": "SSH tunnel"} | t | q }}
+{% endif %}

@@ -1,0 +1,6 @@
+# Lines for the hosts file of {{ f.domain }}, made by dejavu {{ dejavu }}.
+# Use them only when there is no DNS for *.{{ f.domain }}. One address per name: no failover.
+{% set t = reach | selectattr("traefik") | first %}
+{% for w in web %}
+{{ t.public_ip or t.address }}  {{ w.host }}.{{ f.domain }}
+{% endfor %}

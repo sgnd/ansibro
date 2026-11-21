@@ -1,0 +1,1557 @@
+{##
+  Dokumentasi Teknis Serah Terima (Bahasa Indonesia). Kembarannya (en/technical.md.j2) punya
+  judul, anchor, tabel, dan blok kode yang sama dengan urutan yang sama.
+  Hanya fakta dari render context yang dicetak. Jawaban kosong dicetak NP, tidak pernah ditebak.
+##}
+{% set NP = "*Belum diisi*" %}
+{% set doc = a.get("document") or {} %}
+{% set bast = a.get("bast") or {} %}
+{% set client = a.get("client") or {} %}
+{% set vendor = a.get("vendor") or {} %}
+{% set support = a.get("support") or {} %}
+{% set warranty = support.get("warranty") or {} %}
+{% set delivery = a.get("delivery") or {} %}
+{% set dns = a.get("dns") or {} %}
+{% set servers = a.get("servers") or {} %}
+{% set days = a.get("password_change_days") or 7 %}
+{% set state_owner = a.get("state_owner") or "vendor" %}
+{% set client_name = client.get("name") | md if client.get("name") else "Klien" %}
+{% set vendor_name = vendor.get("name") | md if vendor.get("name") else "Vendor" %}
+{% set kdbx_name = slug ~ ("-kredensial.kdbx" if first_lang == "id" else "-credentials.kdbx") %}
+{% set swarm = f.orchestrator == "swarm" %}
+{% set orch = "Docker Swarm" if swarm else "k3s" %}
+{% set managers = f.nodes | selectattr("role", "equalto", "manager") | map(attribute="name") | list %}
+{% set all_nodes = f.nodes | map(attribute="name") | list %}
+{% set app_tier = f.nodes | selectattr("tier", "equalto", "app") | map(attribute="name") | list %}
+{% set mon = f.monitoring.app %}
+{% set alerts = [] %}
+{% for r in f.alerts %}
+{% if not (r.name.startswith("Postgres") and not has("postgres") or r.name.startswith("Mariadb") and not has("mariadb")
+  or r.name.startswith("Cache") and not f.cache or r.name.startswith("Swarm") and not swarm) %}
+{% set _ = alerts.append(r) %}
+{% endif %}
+{% endfor %}
+{% set alert_names = alerts | map(attribute="name") | list %}
+{% set patroni = has("postgres") and app["postgres"].ha %}
+{% set galera = has("mariadb") and app["mariadb"].ha %}
+{% set NAME = {"traefik": "Traefik", "kong": "Kong", "portainer": "Portainer", "swarmpit": "Swarmpit",
+  "keycloak": "Keycloak", "authelia": "Authelia", "postgres": "PostgreSQL", "mariadb": "MariaDB",
+  "redis": "Redis", "valkey": "Valkey", "rustfs": "RustFS", "garage": "Garage", "rabbitmq": "RabbitMQ",
+  "nats": "NATS", "uptimekuma": "Uptime Kuma", "beszel": "Beszel", "victoria": "Victoria monitoring",
+  "openbao": "OpenBao"} %}
+{% set LOGIN = {"authelia": "login Authelia dengan kode dari ponsel Anda (2FA)",
+  "keycloak": "login Keycloak (realm ansibro) dengan kode dari ponsel Anda (2FA)",
+  "": "login Traefik (pengguna admin)"} %}
+{% set CLASS = {"file": "File dulu", "both": "Aplikasi dan file bersamaan", "app": "Aplikasi dulu",
+  "internal": "Jangan diubah"} %}
+{% set BACKUP = {"dump": "Dump database", "paused": "Disalin saat dijeda", "live": "Disalin saat berjalan",
+  "partial": "Sebagian disimpan", "none": "Tidak disimpan"} %}
+{% set CRITICAL = {
+  "TargetDown": "Server pemantauan tidak dapat membaca salah satu sumbernya, sehingga sebagian sistem tidak terpantau.",
+  "NodeDown": "Sebuah server mati atau tidak dapat dihubungi.",
+  "DiskFull": "Sebuah disk hampir penuh. Aplikasi di disk itu bisa berhenti atau kehilangan data.",
+  "AppDown": "Sebuah aplikasi tidak menjawab di port-nya.",
+  "ContainerDown": "Sebuah container (aplikasi yang sudah dikemas) berhenti.",
+  "SwarmServiceDown": "Sebuah aplikasi cluster berjalan dengan salinan lebih sedikit dari seharusnya.",
+  "SwarmNodeDown": "Cluster melaporkan salah satu servernya tidak siap.",
+  "WebAppDown": "Sebuah halaman web tidak dapat dibuka melalui pintu masuk (Traefik).",
+  "K3sNodeDown": "Cluster melaporkan salah satu servernya tidak siap.",
+  "BackupTooOld": "Backup terakhir yang berhasil dari sebuah server sudah lebih dari 26 jam.",
+  "WireGuardPeerDown": "Dua server tidak dapat berkomunikasi melalui jalur terenkripsinya.",
+  "PostgresDown": "Sebuah server database PostgreSQL tidak menjawab.",
+  "PostgresNoPrimary": "Tidak ada server database yang menerima penulisan, sehingga aplikasi tidak dapat menyimpan data.",
+  "MariadbDown": "Sebuah server database MariaDB tidak menjawab.",
+  "CacheDown": "Sebuah server cache tidak menjawab.",
+  "CacheNoPrimary": "Tidak ada server cache yang menerima penulisan.",
+  "OpenBaoSealed": "OpenBao terkunci (sealed), sehingga aplikasi tidak dapat membaca rahasianya."} %}
+{% set CAT = {"gateway": "pintu masuk web", "api-gateway": "gerbang API", "management": "halaman pengelolaan cluster",
+  "auth": "login", "database": "database", "cache": "cache", "storage": "penyimpanan file (S3)", "queue": "pesan antaraplikasi",
+  "uptime": "pemeriksaan uptime", "monitoring": "pemantauan", "secrets": "penyimpanan rahasia"} %}
+{% set PLACE = {"managers": "manager", "every server": "semua server", "cluster": "cluster",
+  "cache servers": "server cache", "mariadb servers": "server MariaDB"} %}
+{% set ALERTGROUP = {"apps": "aplikasi", "backup": "backup", "databases": "database", "monitoring": "pemantauan",
+  "servers": "server"} %}
+{% macro ver(x) %}{% if x.images and x.images[0].key != x.name %}{{ x.images[0].repo.split("/")[-1] }} {{ x.images[0].tag }}{% else %}{{ x.version or "" }}{% endif %}{% endmacro %}
+{% macro np(x) %}{{ x | md if x not in (None, "", []) else NP }}{% endmacro %}
+{% macro npdate(x) %}{{ x | date if x else NP }}{% endmacro %}
+{% macro entry(s) %}`{{ groups[s.group][first_lang] }}/{{ s.title }}`{% endmacro %}
+{% macro cls(s) %}{{ s.change if s.verified or s.change in ("both", "internal") else "both" }}{% endmacro %}
+{% macro anyone(lst) %}{{ "siapa saja (daftarnya kosong)" if not lst else lst | cidrs }}{% endmacro %}
+{% macro runs_on(x) %}
+{%- if x.nodes -%}
+{% if x.ha and x.name in ("postgres", "redis", "valkey") %}{{ x.nodes[0] }} (utama saat instalasi), {{ x.nodes[1:] | join(", ") }}{% else %}{{ x.nodes | join(", ") }}{% endif %}
+{%- elif x.name == "traefik" -%}
+{{ f.traefik_nodes | join(", ") or "cluster" }}
+{%- elif x.name in ("portainer", "swarmpit", "authelia") -%}
+{{ f.first_manager }}
+{%- elif x.name in ("kong", "keycloak") and app_tier -%}
+cluster, di {{ app_tier | join(", ") }}
+{%- else -%}
+cluster
+{%- endif -%}
+{% endmacro %}
+---
+title: {{ "Dokumentasi Teknis Serah Terima" | q }}
+subtitle: {{ ((a.get("environment") ~ " · " if a.get("environment") else "") ~ f.domain) | q }}
+short-title: {{ ("Dokumentasi Teknis · " ~ (client.get("short") or client.get("name") or f.domain)) | q }}
+lang: id
+region: ID
+docnumber: {{ doc.get("number") | q }}
+version: {{ (doc.get("version") or "1.0") | q }}
+date: {{ ((bast.get("date") or today) | date) | q }}
+classification: {{ (doc.get("classification") or "TERBATAS") | q }}
+numbered: true
+{% if draft %}
+draft: true
+{% endif %}
+labels: {page: "Halaman", of: "dari", toc: "Daftar Isi"}
+cover:
+  kicker: {{ "DOKUMENTASI SERAH TERIMA" | q }}
+{% if logo.vendor %}
+  logo: {{ logo.vendor | q }}
+{% endif %}
+  rows:
+    - {label: "Untuk", value: {{ (client.get("name") or "Belum diisi") | q }}}
+    - {label: "Oleh", value: {{ (vendor.get("name") or "Belum diisi") | q }}}
+    - {label: "Sistem", value: {{ ((a.get("environment") ~ ", " if a.get("environment") else "") ~ f.domain) | q }}}
+    - {label: "Nomor dokumen", value: {{ (doc.get("number") or "Belum diisi") | q }}}
+    - {label: "Versi", value: {{ (doc.get("version") or "1.0") | q }}}
+    - {label: "Tanggal", value: {{ ((bast.get("date") or today) | date) | q }}}
+    - {label: "Klasifikasi", value: {{ (doc.get("classification") or "TERBATAS") | q }}}
+    - {label: "Distribusi", value: {{ ("Hanya untuk " ~ (client.get("name") or "Klien") ~ " dan " ~ (vendor.get("name") or "Vendor")) | q }}}
+  footer: {{ ("Dibuat dengan dejavu " ~ dejavu ~ " dari ansibro " ~ (f.ansibro.version or f.ansibro.describe or "(versi tidak diketahui)") ~ ". Dokumen ini tidak memuat kata sandi apa pun. Dokumen ini menjelaskan cara masuk ke sistem, jadi jaga kerahasiaannya.") | q }}
+---
+
+# Pengendalian dokumen {#control .unnumbered}
+
+| Peran | Nama |
+|:---------------|:--------------------------------------------------------|
+| Disusun oleh | {{ np(doc.get("prepared_by")) }} |
+| Diperiksa oleh | {{ np(doc.get("reviewed_by")) }} |
+| Disetujui oleh | {{ np(doc.get("approved_by")) }} |
+
+{% if doc.get("revisions") %}
+| Versi | Tanggal | Oleh | Perubahan |
+|:--------|:-----------|:----------------|:-----------------------------------------|
+{% for r in doc.get("revisions") %}
+| {{ np(r.get("version")) }} | {{ r.get("date") | iso if r.get("date") else NP }} | {{ np(r.get("by")) }} | {{ np(r.get("change")) }} |
+{% endfor %}
+{% else %}
+Riwayat revisi: *belum ada catatan*.
+{% endif %}
+
+Dokumen ini dibuat dengan dejavu {{ dejavu }} dari ansibro {{ f.ansibro.version or f.ansibro.describe or "(versi tidak diketahui)" }}{% if f.ansibro.dirty %} (dengan perubahan lokal){% endif %}, konfigurasi `{{ f.config }}`, instalasi terakhir {{ npdate(f.last_install) }}.
+Dokumen ini tidak memuat kata sandi. Semua kata sandi ada di file kredensial `{{ kdbx_name }}`.
+Jika suatu jawaban belum diberikan, teks menulis *Belum diisi*.
+
+## Cara membaca dokumen ini {#how-to-read .unnumbered}
+
+- **Semua pembaca** (yang hanya memakai halaman web): baca [bab 1](#summary), [bab 5](#access), [bab 6](#credentials), dan [bab 11](#support).
+- **Operator** (yang merawat server): baca seluruh dokumen.
+- Istilah teknis dijelaskan saat pertama kali muncul, dan sekali lagi di [glosarium](#appendix-glossary) (Lampiran H).
+- Kotak merah menandai hal yang harus Anda tindak lanjuti.
+
+# Ringkasan {#summary}
+
+## Apa yang dibangun {#summary-built}
+
+{{ vendor_name }} membangun sistem dengan {{ f.nodes | length }} server untuk {{ client_name }}.
+Sistem ini dapat diakses di alamat web `{{ f.domain }}` dan halaman-halaman di bawahnya, misalnya `traefik.{{ f.domain }}`.
+Sistem dipasang dengan ansibro, yaitu program instalasi yang memasang program yang sama di setiap server dengan cara yang sama.
+Program yang berjalan:
+
+{% for x in f.apps %}
+- **{{ NAME.get(x.name, x.name) }}**: {{ (x.about | t) if x.about else (x.info | md) }}
+{% endfor %}
+{% for x in a.get("extra_apps") or [] %}
+- **{{ np(x.get("name")) }}** (aplikasi milik Anda): {{ np(x.get("about")) }}
+{% endfor %}
+
+{% if a.get("summary_note") %}
+{{ a.get("summary_note") | md }}
+
+{% endif %}
+## Enam hal yang perlu Anda ketahui lebih dulu {#summary-six}
+
+1. **Tempat semua kata sandi.** Semua kata sandi ada di satu file terkunci, `{{ kdbx_name }}`. Buka file ini dengan KeePassXC (lihat [bab 5](#access)). Kata sandi pembukanya diberikan terpisah{% if delivery.get("passphrase_channel") %} melalui {{ delivery.get("passphrase_channel") | md }}{% endif %}{% if delivery.get("recipient") %} kepada {{ delivery.get("recipient") | md }}{% endif %}.
+2. **Ganti kata sandi dalam {{ days }} hari.** Saat ini vendor masih mengetahuinya. [Bab 6](#credentials) menjelaskan caranya, dan [Lampiran E](#appendix-passwords) berisi daftar periksanya.
+{% if web %}
+3. **Cara membuka halaman admin.** Gunakan browser web dan buka alamat di [bab 4](#apps), misalnya <https://{{ web[0].host }}.{{ f.domain }}{{ web[0].path }}>.
+{%- if f.admin_allow_from %} Halaman ini hanya terbuka dari alamat internet yang ada di daftar izin.{% endif %}
+{%- if f.admin_sso == "authelia" %} Anda login dengan kata sandi dan kode dari aplikasi di ponsel Anda.{% elif f.admin_sso == "keycloak" %} Anda login dengan kata sandi dan kode dari aplikasi di ponsel Anda.{% endif %}
+
+{% else %}
+3. **Cara membuka halaman admin.** Sistem ini tidak punya halaman web. Server dikelola melalui SSH (lihat [bab 5](#access)).
+{% endif %}
+{% if f.backup.enabled %}
+4. **Backup aktif.** Setiap malam pukul {{ f.backup.time }} ({{ f.timezone }}) setiap server menyalin datanya ke {{ "`" ~ f.backup.host ~ "`" if f.backup.host else "tempat penyimpanan di luar server-server ini" }}.
+{% else %}
+4. **Tidak ada backup.** Jika sebuah server hilang, datanya ikut hilang. Lihat [bab 7](#backup).
+{% endif %}
+{% if mon == "victoria" %}
+5. **Peringatan aktif.** Masalah dilaporkan ke {% for c in f.monitoring.channels %}{{ c.kind }}{{ ", " if not loop.last else "" }}{% else %}*belum ada saluran*{% endfor %}. Lihat [bab 8](#monitoring).
+{% elif mon == "beszel" %}
+5. **Peringatan masih harus diatur.** Beszel menampilkan kondisi server, tetapi baru mengirim peringatan setelah Anda mengaturnya di halamannya. Lihat [bab 8](#monitoring).
+{% else %}
+5. **Anda tidak menerima peringatan.** Tidak ada yang memantau sistem dan memberi tahu Anda saat terjadi kerusakan. Lihat [bab 8](#monitoring).
+{% endif %}
+{% set c0 = (support.get("contacts") or [{}])[0] %}
+6. **Siapa yang dihubungi.** {% if c0.get("name") %}{{ c0.get("name") | md }}{% if c0.get("role") %} ({{ c0.get("role") | md }}){% endif %}{% if c0.get("phone") %}, {{ c0.get("phone") | md }}{% endif %}{% if c0.get("email") %}, {{ c0.get("email") | md }}{% endif %}{% else %}{{ NP }}{% endif %}{% if support.get("hours") %}, {{ support.get("hours") | md }}{% endif %}. Lihat [bab 11](#support).
+
+## Lingkup pekerjaan {#summary-scope}
+
+**Termasuk dalam pekerjaan ini:**
+
+- {{ f.nodes | length }} server yang dipasang dengan ansibro, beserta {{ f.apps | length }} program yang tercantum di atas.
+- Dokumen ini, panduan laptop, berita acara serah terima (BAST), dan file kredensial.
+
+**Tidak termasuk dalam pekerjaan ini:**
+
+{% for x in a.get("out_of_scope") or [] %}
+- {{ x | md }}
+{% else %}
+- {{ NP }}
+{% endfor %}
+
+# Arsitektur {#architecture}
+
+![Server dan aplikasi yang berjalan di atasnya](architecture.svg)
+
+## Cluster dan ketersediaan tinggi {#architecture-ha}
+
+{% if f.nodes | length > 1 %}
+Server-server ini membentuk sebuah *cluster*, yaitu sekelompok server yang bekerja sebagai satu kesatuan.
+{% else %}
+Server ini berjalan sebagai *cluster* dengan satu anggota. Cluster adalah sekelompok server yang bekerja sebagai satu kesatuan; server lain dapat ditambahkan nanti.
+{% endif %}
+{% if swarm %}
+Cluster dijalankan oleh *Docker Swarm*. Docker Swarm menjalankan setiap aplikasi di dalam *container* (aplikasi yang dikemas bersama semua kebutuhannya) dan menyalakannya kembali jika berhenti.
+{% else %}
+Cluster dijalankan oleh *k3s*, versi ringan dari Kubernetes. k3s menjalankan setiap aplikasi di dalam *container* (aplikasi yang dikemas bersama semua kebutuhannya) dan menyalakannya kembali jika berhenti.
+{% endif %}
+*Manager* adalah server yang mengendalikan cluster. Cluster tetap bekerja selama lebih dari separuh manager-nya menyala.
+
+*Ketersediaan tinggi* (*high availability*, HA) berarti suatu bagian tetap bekerja walaupun satu server berhenti. Berikut tingkat HA setiap bagian:
+
+| Bagian | Cara pemasangan | Jika satu server berhenti |
+|:----------------|:--------------------------------------|:--------------------------------------|
+| Manager cluster | {{ managers | length }} manager: {{ managers | join(", ") }} | {% if managers | length >= 3 %}Cluster tetap bekerja ({{ (managers | length - 1) // 2 }} boleh berhenti){% else %}Cluster tidak dapat dikendalikan sampai manager menyala kembali{% endif %} |
+{% if f.traefik_nodes %}
+| Pintu masuk web (Traefik) | Di {{ f.traefik_nodes | join(", ") }} | {% if f.traefik_nodes | length > 1 %}DNS masih mengarah ke server yang berhenti; browser mungkin mencobanya lebih dulu{% else %}Tidak ada halaman web yang terbuka sampai server itu menyala kembali{% endif %} |
+{% endif %}
+{% if f.database %}
+| Database ({{ NAME.get(f.database.app, f.database.app) }}) | {% if f.database.ha and f.database.app == "postgres" %}Patroni di {{ app["postgres"].nodes | join(", ") }}, dengan etcd dan database-proxy{% elif f.database.ha %}Galera di {{ app["mariadb"].nodes | join(", ") }}, dengan database-proxy{% else %}Satu server: {{ runs_on(app[f.database.app]) }}{% endif %} | {% if f.database.ha and f.database.app == "postgres" %}Server lain otomatis menjadi primary{% elif f.database.ha %}Dua server lainnya tetap menerima penulisan{% else %}Database berhenti sampai server menyala kembali{% endif %} |
+{% endif %}
+{% if f.cache %}
+| Cache ({{ NAME.get(f.cache.app, f.cache.app) }}) | {% if f.cache.ha %}Satu primary dan dua salinan dengan Sentinel di {{ app[f.cache.app].nodes | join(", ") }}{% else %}Satu server: {{ runs_on(app[f.cache.app]) }}{% endif %} | {% if f.cache.ha %}Sentinel menjadikan salah satu salinan sebagai primary baru{% else %}Cache berhenti sampai server menyala kembali{% endif %} |
+{% endif %}
+{% if has("garage") %}
+| Penyimpanan (Garage) | {{ app["garage"].nodes | length }} server, {{ app["garage"].nodes | length }} salinan untuk setiap file | {% if app["garage"].ha %}File tetap tersedia dari salinan lainnya{% else %}Penyimpanan berhenti sampai server menyala kembali{% endif %} |
+{% elif has("rustfs") %}
+| Penyimpanan (RustFS) | Satu server: {{ runs_on(app["rustfs"]) }} | Penyimpanan berhenti sampai server menyala kembali |
+{% endif %}
+
+## Bagaimana pengunjung sampai ke aplikasi {#architecture-traffic}
+
+{% if f.traefik_nodes %}
+1. *DNS* (buku alamat internet) mengubah `nama-apa-saja.{{ f.domain }}` menjadi alamat publik {{ f.traefik_nodes | join(", ") }}.
+2. Browser terhubung ke *Traefik*, pintu masuk sistem, di port 443 (HTTPS). Port 80 hanya mengalihkan ke port 443.
+3. Traefik memeriksa siapa yang boleh masuk. Setiap halaman punya satu *penjaga*:
+   - **admin**: alamat pengunjung harus ada di daftar izin admin, lalu login admin meminta kata sandi{% if f.admin_sso %} dan kode (2FA){% endif %};
+   - **admin-ip**: alamat harus ada di daftar izin admin; setelah itu aplikasi menampilkan login-nya sendiri;
+   - **public**: siapa saja boleh membukanya; aplikasi punya login sendiri, atau tanpa login.
+4. Traefik meneruskan pengunjung ke aplikasi, di server mana pun aplikasi itu berjalan dalam cluster.
+
+Daftar izin admin (`admin_allow_from`): {{ anyone(f.admin_allow_from) }}.
+{% else %}
+Traefik tidak dipasang, jadi sistem ini tidak punya halaman web. Aplikasi diakses melalui SSH (lihat [bab 5](#access)).
+{% endif %}
+
+## Manager pertama {#architecture-first}
+
+`{{ f.first_manager }}` adalah *manager pertama*. Server ini punya tugas yang tidak dimiliki server lain:
+
+- ansibro dan uji penerimaannya menjalankan pemeriksaan dari server ini.
+{% if has("portainer") or has("swarmpit") or has("authelia") %}
+{% set fm = [] %}
+{% for k in ["portainer", "swarmpit", "authelia"] if has(k) %}{% set _ = fm.append(NAME[k]) %}{% endfor %}
+- {{ fm | join(" dan ") }} menyimpan datanya di server ini.
+{% endif %}
+{% if has("authelia") %}
+- Authelia menulis kode 2FA pertama dan tautan reset kata sandi ke sebuah file di server ini.
+{% endif %}
+{% if f.backup.enabled %}
+- Backup malamnya juga berisi {{ "state Swarm" if swarm else "snapshot k3s" }}, salinan `config.yml`, dan salinan semua file kata sandi.
+{% endif %}
+- Server ini menyimpan otoritas sertifikat (CA) untuk registry image privat.
+- **Server ini tidak boleh dikeluarkan dari cluster.**
+
+## Komponen {#architecture-components}
+
+ansibro juga memasang bagian-bagian berikut. Bagian ini bukan aplikasi pilihan Anda, tetapi termasuk dalam sistem.
+
+| Komponen | Lokasi | Port | Versi | Lisensi | Fungsi |
+|:-----------|:------------|:-----|:-------------|:----------|:------------------------------------|
+{% for c in f.components %}
+| {{ c.name }} | {{ PLACE.get(c.where, c.where) }} | {{ c.port or "" }} | {{ c.version }} | {{ c.license }} | {{ (c.about | t).replace("<domain>", f.domain) | md }} |
+{% endfor %}
+
+# Server dan jaringan {#servers}
+
+## Daftar server {#servers-list}
+
+*IP cluster* adalah alamat yang dipakai antarserver. *Alamat SSH* adalah alamat tempat orang dan program instalasi login.
+
+| Server | Peran | Tier | IP cluster | Alamat SSH | IP publik |
+|:-----------|:-----------|:---------|:-------------|:--------------|:--------------|
+{% for n in reach %}
+| {{ n.name }}{% if n.first %} (manager pertama){% endif %} | {{ n.role }} | {{ n.tier or "" }} | {{ n.ip }} | {{ n.host }} | {{ n.public_ip or ("sama dengan alamat SSH" if n.direct else NP) }} |
+{% endfor %}
+
+{% set specs = check.servers if check else {} %}
+| Server | Penyedia | Region | Ukuran | Sistem operasi |
+|:-----------|:---------------|:-------------|:---------------------------|:------------------|
+{% for n in reach %}
+{% set h = specs.get(n.name) or {} %}
+| {{ n.name }} | {{ np(n.provider or a.get("provider")) }} | {{ np(n.region) }} | {% if h.get("reached") %}{{ h.get("vcpu") }} vCPU, memori {{ h.get("ram_gb") }} GB, disk {{ h.get("disk_gb") }} GB{% elif h %}*Tidak terjangkau*{% else %}*Belum diperiksa*{% endif %} | {% if h.get("reached") %}{{ h.get("os") }}{% if h.get("kernel") %} (kernel {{ h.get("kernel") }}){% endif %}{% elif h %}*Tidak terjangkau*{% else %}*Belum diperiksa*{% endif %} |
+{% endfor %}
+
+| Server | Sidik jari host key (ED25519) |
+|:-----------|:--------------------------------------------------------------|
+{% for n in reach %}
+{% set h = specs.get(n.name) or {} %}
+| {{ n.name }} | {% if h.get("fingerprint") %}`{{ h.get("fingerprint") }}`{% elif h and not h.get("reached") %}*Tidak terjangkau*{% else %}*Belum diperiksa*{% endif %} |
+{% endfor %}
+
+*Sidik jari host key* (*fingerprint*) memungkinkan Anda memastikan, saat login SSH pertama kali, bahwa Anda benar-benar terhubung ke server yang asli. [Bab 5](#access) menunjukkan cara membacanya.
+
+{% set server_apps = f.nodes | selectattr("apps") | list %}
+{% if server_apps %}
+Aplikasi yang berjalan di server tertentu (semua aplikasi lainnya berjalan di cluster):
+
+| Server | Aplikasi |
+|:-------------|:----------------------------------------------------------|
+{% for n in server_apps %}
+| {{ n.name }} | {% for k in n.apps %}{{ NAME.get(k, k) }}{{ ", " if not loop.last else "" }}{% endfor %} |
+{% endfor %}
+{% endif %}
+
+## DNS {#servers-dns}
+
+{% if f.traefik_nodes %}
+{% set tn = reach | selectattr("traefik") | list %}
+| Pengaturan | Nilai |
+|:--------------------|:---------------------------------------------------|
+| Mode | {{ {"public": "DNS publik", "internal": "DNS internal perusahaan", "hosts": "tanpa DNS: file hosts di setiap laptop"}.get(dns.get("mode") or "public") }} |
+| Record | `*.{{ f.domain }}` (tipe A) |
+| Mengarah ke | {% for n in tn %}{{ n.public_ip or n.address }} ({{ n.name }}){{ ", " if not loop.last else "" }}{% endfor %} |
+| Penyedia DNS | {{ np(dns.get("provider")) }} |
+| Pemilik domain | {{ np(dns.get("owner")) }} |
+| CDN di depan server | {{ "ya" if dns.get("proxied") else "tidak" }} |
+
+{% if f.tls == "letsencrypt" %}
+Dengan Let's Encrypt, Traefik hanya berjalan di {{ f.traefik_nodes | join(", ") }}, karena Let's Encrypt harus dapat menghubungi server yang meminta sertifikat.
+{% endif %}
+{% if dns.get("proxied") %}
+
+> **Penting:** CDN di depan server menyembunyikan alamat asli pengunjung. Traefik lalu hanya melihat alamat CDN, sehingga daftar izin tidak lagi bekerja sebagaimana mestinya.
+
+{% endif %}
+{% if (dns.get("mode") or "public") == "hosts" %}
+Tidak ada DNS untuk `{{ f.domain }}`. Setiap laptop menambahkan baris-baris berikut ke *file hosts*-nya (file `hosts.txt` berisi baris yang sama):
+
+```text
+{% include "hosts.txt.j2" %}
+```
+
+File hosts hanya memberi satu alamat untuk setiap nama, jadi tidak ada server cadangan jika server itu mati.
+{% endif %}
+{% else %}
+Traefik tidak dipasang, jadi tidak diperlukan record DNS untuk halaman web.
+{% endif %}
+
+## Sertifikat (TLS) {#servers-tls}
+
+*Sertifikat* membuktikan kepada browser bahwa halaman itu benar-benar `{{ f.domain }}`, sekaligus mengenkripsi koneksinya (*TLS*, huruf "s" pada https).
+
+{% if f.tls == "letsencrypt" %}
+| Pengaturan | Nilai |
+|:--------------------|:---------------------------------------------------|
+| Mode | Let's Encrypt (sertifikat publik gratis, dibuat otomatis) |
+| Penerbit | {{ "`" ~ f.acme_server ~ "` (server ACME privat)" if f.acme_server else "Let's Encrypt" }} |
+| Email kontak | {{ f.acme_email or NP }} |
+| Masa berlaku | Setiap sertifikat berlaku beberapa bulan; Traefik memperbaruinya sebelum habis |
+| Pembaruan | Otomatis. DNS harus mengarah ke {{ f.traefik_nodes | join(", ") }} dan port 80 harus tetap terbuka |
+{% if f.ca_file or (a.get("tls") or {}).get("client_ca") %}
+| File CA | `{{ slug }}-ca.crt`, diserahkan bersama dokumen ini. Laptop harus memercayainya ([bab 5](#access)) |
+{% endif %}
+{% elif f.tls == "custom" %}
+| Pengaturan | Nilai |
+|:--------------------|:---------------------------------------------------|
+| Mode | Sertifikat milik sendiri (custom) |
+{% if f.tls_cert %}
+| Untuk | {{ f.tls_cert.sans | join(", ") or f.tls_cert.subject }} |
+| Penerbit | {{ f.tls_cert.issuer | md }} |
+| Masa berlaku | {{ f.tls_cert.not_after }} |
+{% else %}
+| Untuk | *Belum diperiksa* |
+| Penerbit | *Belum diperiksa* |
+| Masa berlaku | *Belum diperiksa* |
+{% endif %}
+| Pembaruan | Manual: ganti file sertifikat dan file kunci, lalu jalankan `./install.sh` |
+{% if f.ca_file or (a.get("tls") or {}).get("client_ca") %}
+| File CA | `{{ slug }}-ca.crt`, diserahkan bersama dokumen ini. Laptop harus memercayainya ([bab 5](#access)) |
+{% endif %}
+{% else %}
+| Pengaturan | Nilai |
+|:--------------------|:---------------------------------------------------|
+| Mode | Self-signed (ditandatangani sendiri) |
+| Penerbit | Sertifikat bawaan Traefik sendiri |
+| Masa berlaku | Dibuat ulang setiap kali Traefik menyala |
+| Pembaruan | Tidak ada |
+
+> **Penting:** dengan sertifikat self-signed, setiap browser menampilkan peringatan di setiap halaman, dan tidak ada sertifikat yang dapat dipasang untuk menghilangkannya. Rekomendasi: beralih ke `tls: custom` dengan sertifikat dari otoritas sertifikat (CA) perusahaan Anda.
+{% endif %}
+
+{% set seen = (check.web if check else []) | selectattr("not_after") | list %}
+{% if seen %}
+Pada {{ check.date or "hari pengujian" }}, sertifikat yang dipakai diterbitkan oleh {{ seen[0].issuer | md }} dan berakhir pada {{ seen[0].not_after }}{% if seen | map(attribute="not_after") | unique | list | length > 1 %} (berbeda antarhalaman; lihat [bab 12](#acceptance)){% endif %}.
+
+{% endif %}
+## Firewall {#servers-firewall}
+
+*Firewall* menentukan koneksi mana yang boleh masuk ke sebuah server. Setiap server menjalankan firewall *ufw*.
+
+- ansibro yang mengelola firewall. ansibro menulis ulang aturannya setiap kali ada perubahan, dan **aturan yang ditambahkan manual akan terhapus**. Ubah daftar di bawah ini di `config.yml`, lalu jalankan `./install.sh`.
+- Port yang dibuka oleh container Docker tidak melewati ufw.
+- *Daftar izin* (*allow-list*) adalah daftar alamat internet yang boleh terhubung. Daftar kosong berarti siapa saja boleh terhubung.
+
+| Daftar | Yang dijaga | Alamat | Milik |
+|:----------------|:-------------------|:----------------------|:----------------------|
+{% for name, lst, what in [("ssh.allow_from", f.ssh.allow_from, "SSH ke semua server"), ("admin_allow_from", f.admin_allow_from, "halaman web admin")] %}
+{% if lst %}
+{% for c in lst %}
+{% set ns = namespace(owners=[]) %}
+{% for p in people %}
+{% for ip in p.get("allow_from") or [] %}
+{% if (ip | string).split("/")[0] == (c | string).split("/")[0] and p.get("name") not in ns.owners %}
+{% set ns.owners = ns.owners + [p.get("name")] %}
+{% endif %}
+{% endfor %}
+{% endfor %}
+{% set owners = ns.owners %}
+| {{ "`" ~ name ~ "`" if loop.first else "" }} | {{ what if loop.first else "" }} | {{ c }} | {{ owners | map("md") | join(", ") if owners else NP }} |
+{% endfor %}
+{% else %}
+| `{{ name }}` | {{ what }} | **terbuka untuk siapa saja** | |
+{% endif %}
+{% endfor %}
+{% for r in f.firewall_allow %}
+| {{ "`firewall_allow`" if loop.first else "" }} | port {{ r.get("port", "") }}/{{ r.get("proto", "tcp") }} | {{ r.get("from", "siapa saja") }} | {{ NP }} |
+{% endfor %}
+
+{% if not f.ssh.allow_from or not f.admin_allow_from %}
+> **Penting:** {% if not f.ssh.allow_from %}SSH terbuka untuk siapa saja di internet{% endif %}{% if not f.ssh.allow_from and not f.admin_allow_from %}, dan {% endif %}{% if not f.admin_allow_from %}halaman admin terbuka untuk siapa saja di internet (tetap meminta login){% endif %}. Rekomendasi: cantumkan alamat kantor dan staf Anda di `config.yml`, lalu jalankan `./install.sh`.
+
+{% endif %}
+{% if blocked %}
+> **Penting:** alamat orang-orang berikut belum ada di daftar izin, sehingga mereka belum dapat terhubung: {% for b in blocked %}{{ b.name | md }} ({{ b.ip }}){{ ", " if not loop.last else "" }}{% endfor %}.
+
+{% endif %}
+## Port {#servers-ports}
+
+*Port* adalah pintu bernomor di sebuah server untuk satu jenis koneksi.
+
+| Port | Fungsi | Di server | Terbuka untuk |
+|:---------|:-------------------|:-------------------------|:-------------------------|
+| {{ f.ssh.port }}/tcp | SSH | semua | {{ anyone(f.ssh.allow_from) }} |
+{% if f.traefik_nodes %}
+| 80, 443/tcp | Halaman web (Traefik) | {{ f.traefik_nodes | join(", ") }} | siapa saja; halaman admin juga memeriksa `admin_allow_from` |
+{% endif %}
+{% for x in f.apps %}
+{% for p in x.ports %}
+| {{ p.port }}/tcp | {{ p.use if p.use == NAME.get(x.name) else NAME.get(x.name, x.name) ~ " " ~ p.use }} | {{ x.nodes | join(", ") or "cluster" }} | hanya server lain dalam cluster |
+{% endfor %}
+{% endfor %}
+{% set WHERE = {"managers": managers | join(", "), "every server": "semua",
+  "cache servers": (app[f.cache.app].nodes | join(", ") if f.cache else ""),
+  "mariadb servers": (app["mariadb"].nodes | join(", ") if has("mariadb") else "")} %}
+{% for c in f.components if c.port and c.where != "cluster" %}
+| {{ c.port }}/{{ "udp" if c.name == "wireguard" else "tcp" }} | {{ "API k3s" if c.name == "k3s" else c.name }} | {{ managers | join(", ") if c.name == "k3s" else WHERE.get(c.where, c.where) }} | hanya server lain dalam cluster |
+{% endfor %}
+{% if has("beszel") %}
+| 45876/tcp | Agen Beszel | semua | hanya server lain dalam cluster |
+{% endif %}
+{% for r in f.firewall_allow %}
+| {{ r.get("port", "") }}/{{ r.get("proto", "tcp") }} | aturan `firewall_allow` | semua | {{ r.get("from", "siapa saja") }} |
+{% endfor %}
+
+Database, cache, penyimpanan, dan antrean pesan diakses dari laptop melalui tunnel SSH (lihat [bab 5](#access)).
+
+## Jaringan antarserver {#servers-wireguard}
+
+{% if f.wireguard %}
+Server-server berkomunikasi satu sama lain melalui *WireGuard*, sebuah jaringan terenkripsi (port UDP {{ f.wireguard_port }}). IP cluster di atas adalah alamat WireGuard; SSH memakai alamat SSH.
+WireGuard hanya menghubungkan antarserver. WireGuard **bukan** VPN untuk laptop.
+{% else %}
+WireGuard tidak aktif. Server-server berkomunikasi melalui IP cluster, dan ansibro tidak mengenkripsi lalu lintas tersebut. Hal ini aman di jaringan privat milik penyedia server.
+{% endif %}
+
+## Waktu dan internet {#servers-time}
+
+- Zona waktu: **{{ f.timezone }}**. Jadwal backup dan log memakai zona waktu ini.
+{% if f.offline %}
+- **Mode offline:** server tidak terhubung ke internet. Program diambil dari paket bundel di manager pertama. Agar jam tetap tepat, cantumkan server waktu (NTP) lokal di `/etc/chrony/sources.d/local.sources` di setiap server.
+{% else %}
+- Server memakai internet untuk mengunduh program dan menyamakan jam.
+{% endif %}
+
+# Aplikasi {#apps}
+
+## Gambaran umum {#apps-overview}
+
+| Aplikasi | Fungsi | Berjalan di | Versi | Lisensi |
+|:-----------|:-------------------------------|:-------------------|:-----------|:-----------|
+{% for x in f.apps %}
+| {{ NAME.get(x.name, x.name) }} | {{ CAT.get(x.category, x.category) }} | {{ runs_on(x) }} | {{ ver(x) }} | {{ (x.license.split(" (")[0]) | md }} |
+{% endfor %}
+
+{% if web %}
+## Halaman web {#apps-web}
+
+| Alamat | Aplikasi | Siapa yang dapat membuka | Login |
+|:------------------------------------|:-----------|:--------------------|:--------------------|
+{% for x in f.apps %}
+{% for w in x.web %}
+| <{{ w.url }}> | {{ NAME.get(x.name, x.name) }} | {% if w.guard == "public" %}siapa saja{% else %}{{ "siapa saja" if not f.admin_allow_from else "daftar izin admin" }}{% endif %} | {% if w.login == "layer" %}{{ LOGIN[f.admin_sso] }}{% elif w.login == "own" %}login aplikasi itu sendiri{% else %}tanpa login{% endif %} |
+{% endfor %}
+{% endfor %}
+{% endif %}
+
+{% for x in f.apps %}
+## {{ NAME.get(x.name, x.name) }} {#app-{{ x.name }}}
+
+{% if x.about %}
+{{ x.about | t }}
+{% else %}
+dejavu tidak punya deskripsi aplikasi ini. Menurut ansibro: {{ x.info | md }}
+{% endif %}
+
+{% set rows = f.secrets | selectattr("app", "equalto", x.name) | selectattr("status", "equalto", "present") | rejectattr("group", "equalto", "internal") | list %}
+| Hal | Keterangan |
+|:----------------|:-------------------------------------------------------|
+| Berjalan di | {{ runs_on(x) }} |
+{% for w in x.web %}
+| {{ "Halaman web" if loop.first else "" }} | <{{ w.url }}> ({% if w.login == "layer" %}{{ LOGIN[f.admin_sso] }}{% elif w.login == "own" %}login sendiri{% else %}tanpa login{% endif %}) |
+{% endfor %}
+{% for p in x.ports %}
+| {{ p.use }} | {% for n in x.nodes %}`{{ nodes[n].ip }}:{{ p.port }}`{{ ", " if not loop.last else "" }}{% endfor %}{% if f.database and f.database.ha and f.database.app == x.name %}; aplikasi di cluster memakai `{{ f.database.host }}:{{ f.database.port }}`{% endif %} |
+{% endfor %}
+| Dari laptop | {{ {"web": "browser web", "tunnel": "tunnel SSH ([bab 5](#access))", "none": "tidak diperlukan"}.get(x.laptop, x.laptop) }} |
+{% if rows %}
+| Kredensial | {% for s in rows | unique(attribute="title") %}{{ entry(s) }}{{ ", " if not loop.last else "" }}{% endfor %} |
+{% endif %}
+| Data | {% for d in x.data %}`{{ d }}`{{ ", " if not loop.last else "" }}{% endfor %}{% if x.nodes %} di {{ x.nodes | join(", ") }}{% endif %} |
+| Backup | {{ BACKUP.get(x.backup, x.backup) }} |
+| Pemeriksaan kesehatan | {{ ("`" ~ x.health ~ "`") if x.health else NP }} |
+
+{% set notes = x.notes if x.name != "traefik" or not swarm else [] %}
+{% for n in notes %}
+- {{ (n | t).replace("<domain>", f.domain) | md }}
+{% endfor %}
+{% if x.name == "keycloak" and f.admin_sso == "keycloak" %}
+- Halaman admin terhubung ke Keycloak melalui <https://oauth.{{ f.domain }}/>.
+{% endif %}
+{% if x.name == "traefik" and f.admin_sso %}
+- Kata sandi Traefik tidak diperlukan untuk halaman admin, karena halaman admin memakai {{ LOGIN[f.admin_sso] }}.
+{% endif %}
+
+{% endfor %}
+{% if a.get("extra_apps") %}
+## Aplikasi milik Anda {#apps-extra}
+
+| Aplikasi | Fungsi | Alamat |
+|:-------------|:--------------------------------------|:------------------------------|
+{% for x in a.get("extra_apps") %}
+| {{ np(x.get("name")) }} | {{ np(x.get("about")) }} | {{ np(x.get("url")) }} |
+{% endfor %}
+{% endif %}
+
+# Akses dari laptop Anda {#access}
+
+Bab ini menunjukkan langkah demi langkah cara menjangkau sistem dari laptop Windows, macOS, atau Linux.
+
+{% include "id/laptop.md.j2" %}
+
+# Kredensial dan penggantian kata sandi {#credentials}
+
+## File kredensial {#credentials-file}
+
+Semua kata sandi ada di satu file terkunci, `{{ kdbx_name }}`. File ini berformat KeePass. Buka file ini dengan KeePassXC ([bab 5](#access)).
+Kata sandi pembuka file ini (*frasa sandi* atau *passphrase*) dikirim terpisah{% if delivery.get("passphrase_channel") %} melalui {{ delivery.get("passphrase_channel") | md }}{% endif %}{% if delivery.get("recipient") %} kepada {{ delivery.get("recipient") | md }}{% endif %}. Dokumen ini maupun berita acara serah terima tidak memuat kata sandi apa pun.
+
+{% if f.state == "none" %}
+> **Penting:** folder `state/` milik ansibro tidak ditemukan saat dokumen ini dibuat, sehingga daftar di bawah ini belum lengkap dan file kredensial belum ada.
+
+{% endif %}
+File ini berisi kelompok berikut:
+
+| Kelompok | Isinya | Siapa yang memerlukan |
+|:-------------------------------|:------------------------------------------|:-------------------|
+{% for g in secret_groups %}
+{% set titles = g.rows | map(attribute="title") | unique | list %}
+{% if titles or g.key in ("recovery", "internal") and (f.config_secrets or g.key == "internal") %}
+| {{ groups[g.key][first_lang] }} | {% if g.key == "internal" %}{{ titles | length }} kata sandi teknis, ditambah file "ansibro installer files" (untuk menjalankan ulang ansibro){% elif g.key == "recovery" %}{% for c in f.config_secrets %}{% set _ = titles.append("config.yml " ~ c) %}{% endfor %}{{ titles | join(", ") }}{% else %}{{ titles | join(", ") }}{% endif %} | {{ {"web": "semua yang mengelola halaman web", "data": "operator", "storage": "operator", "infra": "operator", "recovery": "simpan baik-baik; hanya untuk pemulihan", "internal": "hanya untuk menjalankan ulang ansibro", "old": "tidak ada (sisa aplikasi yang sudah dihapus)"}.get(g.key, "") }} |
+{% endif %}
+{% endfor %}
+
+## Akun {#credentials-accounts}
+
+Berikut akun yang dipakai orang. Kolom kelas menunjukkan cara mengganti kata sandinya (lihat bagian berikutnya).
+
+{% set people_rows = f.secrets | selectattr("status", "equalto", "present") | selectattr("audience", "in", ["client", "recovery"]) | unique(attribute="title") | list %}
+| Akun | Untuk | Entri di file kredensial | Cara mengganti | Batas waktu |
+|:----------------|:-----------|:------------------------------|:----------------|:-----------|
+{% for s in people_rows %}
+| {{ s.title }} | {{ "pemulihan" if s.audience == "recovery" else "pemakaian harian" }} | {{ entry(s) }} | {{ CLASS[cls(s)] }}{% if not s.verified %} (belum diuji){% endif %} | {% if cls(s) == "internal" %}hanya jika bocor{% elif s.audience == "recovery" %}saat akses vendor berakhir{% else %}dalam {{ days }} hari{% endif %} |
+{% endfor %}
+| Frasa sandi file kredensial | semua | (file itu sendiri) | KeePassXC | dalam {{ days }} hari |
+
+## Cara mengganti kata sandi {#credentials-change}
+
+ansibro menyimpan salinan semua kata sandi di folder `state/` pada komputer yang menjalankan program instalasi. Salinan ini dipakai setiap kali ansibro dijalankan. Karena itu, kata sandi harus diganti di tempat yang benar. Jika tidak, instalasi berikutnya akan membatalkan perubahan Anda atau gagal.
+
+{% set classes = people_rows | map(attribute="change") | list %}
+{% set unverified = people_rows | rejectattr("verified") | list %}
+{% if "file" in classes %}
+### File dulu {#credentials-file-first}
+
+Berlaku untuk: {{ people_rows | selectattr("change", "equalto", "file") | selectattr("verified") | map(attribute="title") | join(", ") or "tidak ada" }}.
+ansibro menulis kata sandi ini ke aplikasi setiap kali dijalankan. Perubahan yang hanya dilakukan di aplikasi akan dibatalkan pada instalasi berikutnya.
+
+1. Di komputer instalasi, tulis kata sandi baru di file `state/secrets/<name>`.
+2. Jalankan `./install.sh`.
+3. Perbarui file kredensial, juga setiap aplikasi milik Anda yang memakai kata sandi ini.
+
+{% endif %}
+{% if "both" in classes or unverified %}
+### Aplikasi dan file bersamaan {#credentials-both}
+
+Berlaku untuk: {{ (people_rows | selectattr("change", "equalto", "both") | map(attribute="title") | list + unverified | rejectattr("change", "equalto", "both") | map(attribute="title") | list) | join(", ") }}.
+ansibro login dengan kata sandi ini, atau kata sandi ini diperlukan untuk pemulihan. Jika hanya satu tempat yang diubah, instalasi berikutnya gagal.
+
+1. Ganti kata sandi di aplikasi.
+2. Pada saat yang sama, tulis kata sandi yang sama di `state/secrets/<name>` pada komputer instalasi.
+3. Jalankan `./install.sh`, lalu uji penerimaan (`tests/check.py`).
+4. Perbarui file kredensial.
+
+{% if has("mariadb") %}
+- **MariaDB root:** backup malam memakai kata sandi ini. Jika kata sandi hanya diganti di MariaDB, backup gagal tanpa pemberitahuan{% if mon == "victoria" %} sampai peringatan BackupTooOld muncul sehari kemudian{% endif %}.
+{% endif %}
+{% if f.backup.enabled %}
+- **Backup (restic):** jalankan `sudo restic -r <repository> key passwd` di satu server, tulis kata sandi baru di `state/secrets/restic`, lalu jalankan `./install.sh` (perintah ini menulis ulang `/opt/ansibro/backup/password` di setiap server). Simpan kata sandi lama sampai kata sandi baru terbukti berfungsi: tanpa kata sandi lama, backup lama tidak dapat dibaca.
+{% endif %}
+{% if unverified %}
+- {{ unverified | map(attribute="title") | join(", ") }}: cara aplikasi menerima kata sandi baru belum diuji, jadi perlakukan sebagai "aplikasi dan file bersamaan".
+{% endif %}
+
+{% endif %}
+{% if "app" in classes %}
+### Aplikasi dulu {#credentials-app-first}
+
+Berlaku untuk: {{ people_rows | selectattr("change", "equalto", "app") | selectattr("verified") | map(attribute="title") | join(", ") or "tidak ada" }}.
+Aplikasi hanya membaca kata sandi ini saat pertama kali menyala. Setelah itu, kata sandi dikelola oleh aplikasi.
+
+1. Ganti kata sandi di aplikasi.
+2. Tulis kata sandi yang sama di `state/secrets/<name>`, agar catatan dan uji penerimaan tetap benar.
+3. Perbarui file kredensial.
+
+{% if has("authelia") %}
+- **Authelia:** file `users.yml` di {{ f.first_manager }} adalah daftar akun Authelia yang berlaku.
+{% endif %}
+
+{% endif %}
+### Jangan diubah {#credentials-internal}
+
+Kata sandi di kelompok "{{ groups["internal"][first_lang] }}" hanya dipakai antarprogram. Tidak ada orang yang mengetiknya. Ganti hanya jika bocor, dan serahkan kepada operator ansibro.
+
+{% if has("garage") %}
+- **Garage:** mengubah file kunci Garage menambah kunci kedua; kunci lama tetap berlaku sampai dihapus dengan perintah garage.
+{% endif %}
+
+> **Penting:** file ringkasan milik ansibro menyebut "ganti di aplikasi, lalu perbarui juga filenya". Petunjuk itu salah untuk kelas "file dulu" dan "aplikasi dan file bersamaan". Ikuti bab ini.
+
+{% if f.admin_sso %}
+## Kode dari ponsel Anda (2FA) {#credentials-2fa}
+
+Login admin meminta kata sandi dan kode dari *aplikasi autentikator* di ponsel (*2FA*, login dua faktor).
+{% if f.admin_sso == "authelia" %}
+Vendor sudah menyiapkannya selama pekerjaan. Daftarkan ponsel Anda sendiri:
+
+1. Login di <https://authelia.{{ f.domain }}/> dengan akun Authelia.
+2. Pilih pendaftaran perangkat baru. Authelia tidak punya server email, jadi tautan konfirmasinya ditulis ke `/opt/ansibro/authelia/config/notification.txt` di {{ f.first_manager }}.
+3. Operator membaca file itu melalui SSH dan memberikan tautannya kepada Anda.
+4. Pindai kodenya dengan aplikasi autentikator Anda.
+{% else %}
+Kode diatur saat pengguna admin pertama kali login di realm Keycloak "ansibro". Jika vendor yang login lebih dulu, ponsel vendor yang terhubung:
+
+1. Minta vendor menghapus autentikatornya dari pengguna admin di Keycloak.
+2. Login di <https://oauth.{{ f.domain }}/> dan pindai kode baru dengan ponsel Anda sendiri.
+{% endif %}
+{% endif %}
+
+## Siapa yang memegang state/ {#credentials-state}
+
+{% if state_owner == "vendor" %}
+**{{ vendor_name }} memegang `state/`** (salinan kata sandi milik program instalasi).
+Setelah Anda mengganti kata sandi kelas "file dulu" atau "aplikasi dan file bersamaan", kirim nilai barunya kepada vendor **di dalam file kredensial dengan frasa sandi tersendiri**, jangan lewat email atau chat. Jika tidak, instalasi berikutnya oleh vendor akan membatalkan perubahan Anda ("file dulu") atau gagal ("aplikasi dan file bersamaan").
+{% else %}
+**{{ client_name }} memegang `state/`.** File kredensial berisi lampiran "ansibro installer files" (`config.yml` dan semua file kata sandi), sehingga operator Anda sendiri dapat menjalankan ulang ansibro {{ f.ansibro.version or "" }}.
+{% endif %}
+
+## Mengakhiri akses vendor {#credentials-revoke}
+
+Tanggal yang direncanakan: {{ npdate(a.get("vendor_access_end")) }}. Pada tanggal itu:
+
+1. Hapus kunci SSH vendor dari `~/.ssh/authorized_keys` milik pengguna `{{ f.ssh.user }}` di setiap server. ansibro tidak mengelola kunci SSH.
+2. Hapus alamat vendor dari `ssh.allow_from` dan `admin_allow_from` di `config.yml`, lalu jalankan `./install.sh`.
+3. Ganti kata sandi seperti dijelaskan di atas.
+{% if f.backup.enabled %}
+4. Perhatikan bahwa nilai lama masih tersimpan di `/opt/ansibro/backup/installer/state/secrets/` di {{ f.first_manager }} dan di backup yang lebih lama.
+{% endif %}
+5. Vendor menghapus salinan `state/` miliknya setelah Anda setujui.
+
+## Mengganti frasa sandi file kredensial {#credentials-passphrase}
+
+Di KeePassXC: menu **"Database → Database Security"**, lalu atur kata sandi baru. (Di KeePass 2: **"File → Change Master Key"**.) Simpan salinan cadangan file ini di tempat yang aman.
+
+## Menambah staf {#credentials-staff}
+
+{% if f.admin_sso == "authelia" %}
+- Tambahkan orang tersebut ke `users.yml` Authelia di {{ f.first_manager }}.
+{% elif f.admin_sso == "keycloak" %}
+- Tambahkan orang tersebut sebagai pengguna di realm Keycloak "ansibro".
+{% endif %}
+- Tambahkan alamat internetnya ke `admin_allow_from` (halaman web) dan `ssh.allow_from` (SSH, khusus operator) di `config.yml`, lalu jalankan `./install.sh`.
+- Untuk operator: tambahkan kunci publik SSH-nya ke `~/.ssh/authorized_keys` milik `{{ f.ssh.user }}` di setiap server.
+
+# Backup dan pemulihan {#backup}
+
+*Backup* adalah salinan data yang disimpan di tempat lain, agar data dapat dikembalikan (*dipulihkan*, *restore*) setelah hilang.
+
+{% if f.backup.enabled %}
+## Pengaturan {#backup-settings}
+
+| Pengaturan | Nilai |
+|:--------------------|:---------------------------------------------------|
+| Backup | Aktif, dengan *restic* (program backup) di setiap server |
+| Tujuan | {{ f.backup.kind }}: `{{ f.backup.where }}` |
+| Jadwal | Setiap malam pukul {{ f.backup.time }} ({{ f.timezone }}). Jadwal yang terlewat dijalankan saat server menyala berikutnya |
+| Disimpan | {{ f.backup.keep.daily }} harian, {{ f.backup.keep.weekly }} mingguan, dan {{ f.backup.keep.monthly }} bulanan *snapshot* per server |
+| Kata sandi | `{{ groups["recovery"][first_lang] }}/Backup (restic)` di file kredensial |
+
+*Snapshot* adalah satu backup lengkap pada satu waktu tertentu.
+
+## Apa yang disimpan {#backup-what}
+
+| Aplikasi | Cara | Artinya |
+|:-----------|:---------------------|:------------------------------------------------|
+{% for x in f.apps %}
+| {{ NAME.get(x.name, x.name) }} | {{ BACKUP.get(x.backup, x.backup) }} | {{ {"dump": "ekspor lengkap database", "paused": "aplikasi dijeda sebentar lalu foldernya disalin", "live": "disalin saat aplikasi berjalan; konsistensinya tidak dijamin", "partial": "hanya sebagian folder yang disimpan (lihat catatan aplikasi)", "none": "tidak ada yang disimpan"}.get(x.backup, "") }} |
+{% endfor %}
+| Registry image | Tidak disimpan | image diunduh ulang |
+{% if patroni %}
+| etcd | Tidak disimpan | dibangun ulang |
+{% endif %}
+| {{ f.first_manager }} | Tambahan | {{ "state Swarm" if swarm else "snapshot k3s" }}, `config.yml`, dan file kata sandi |
+
+Tidak disimpan: volume Docker, dan aplikasi milik Anda sendiri kecuali file-nya berada di `/opt/ansibro/<name>/`.
+
+## Cara memeriksa {#backup-check}
+
+Di server mana pun, setelah login SSH:
+
+```sh
+sudo ansibro-backup snapshots
+systemctl is-active ansibro-backup.timer
+journalctl -u ansibro-backup
+```
+
+`sudo ansibro-backup` langsung membuat backup saat itu juga.
+{% if mon == "victoria" %}
+Peringatan **BackupTooOld** muncul jika sebuah server tidak punya backup yang berhasil selama 26 jam.
+{% else %}
+
+> **Penting:** tidak ada peringatan jika backup gagal, karena peringatan itu memerlukan Victoria monitoring. Periksa backup secara manual setiap minggu.
+{% endif %}
+
+## Memulihkan seluruh sistem {#backup-restore}
+
+ansibro memulihkan seluruh sistem sekaligus, ke server baru.
+
+1. Siapkan server baru yang kosong (Ubuntu 24.04 atau 26.04) dengan **nama dan IP cluster yang sama**{% if f.wireguard %}; dengan WireGuard, hanya alamat SSH yang boleh berbeda{% endif %}.
+2. Pertahankan pengaturan `backup:` yang sama di `config.yml`, dan `state/` yang sama.
+3. Jalankan:
+
+   ```sh
+   ./install.sh -e restore=true
+   ```
+
+4. Setiap server mendapatkan kembali snapshot terbarunya, lalu aplikasi menyala. Jalankan `tests/check.py` untuk memeriksa.
+
+**Jika `state/` juga hilang,** ambil kembali dulu dari backup {{ f.first_manager }}. Anda memerlukan kata sandi restic dan kredensial penyimpanan dari file kredensial:
+
+```sh
+restic -r <repository> restore latest --host {{ f.first_manager }} \
+  --include /opt/ansibro/backup/stage/installer --target .
+```
+
+Tidak didukung: memulihkan satu aplikasi, satu database, atau titik waktu yang lebih lama, serta memulihkan ke cluster yang sedang berjalan.
+
+Latihan pemulihan terakhir (uji coba restore): {{ a.get("restore_drill") | date if a.get("restore_drill") else "**belum pernah**" }}.
+{% if not a.get("restore_drill") %}
+
+> **Penting:** backup yang belum pernah dipulihkan belum terbukti dapat dipakai. Jadwalkan latihan pemulihan di server cadangan.
+{% endif %}
+{% else %}
+> **Penting:** **tidak ada backup.** Jika sebuah server rusak, datanya hilang untuk selamanya. Rekomendasi: tambahkan bagian `backup:` di `config.yml` dengan tempat penyimpanan di luar server-server ini, lalu jalankan `./install.sh`.
+{% endif %}
+
+# Pemantauan dan peringatan {#monitoring}
+
+*Pemantauan* (*monitoring*) mengawasi server dan aplikasi. *Peringatan* (*alert*) adalah pesan yang dikirim saat ada masalah.
+
+{% if mon == "victoria" %}
+## Sistem pemantauan {#monitoring-tool}
+
+Victoria monitoring berjalan di {{ runs_on(app["victoria"]) }}. Sistem ini menyimpan metrik dan log selama {{ f.monitoring.keep_days }} hari.
+
+| Halaman | Alamat |
+|:----------------------|:-------------------------------------------------|
+{% for w in app["victoria"].web %}
+| {{ {"grafana": "Grafana (dasbor)", "alertmanager": "Alertmanager (peringatan, silence)", "metrics": "Metrik", "logs": "Log"}.get(w.host, w.host) }} | <{{ w.url }}> |
+{% endfor %}
+
+Peringatan dikirim ke:
+{% for c in f.monitoring.channels %}
+**{{ c.kind }}**{% if c.get("to") %} ({{ c.to }}){% endif %}{% if c.get("host") %} melalui `{{ c.host }}`{% endif %}{{ ", " if not loop.last else "." }}
+{% else %}
+*belum ada saluran*.
+{% endfor %}
+Peringatan tingkat warning dan critical dikirim ke tempat yang sama. Selama masalahnya belum selesai, peringatan diulang setiap 4 jam.
+
+{% if not f.monitoring.channels %}
+> **Penting:** belum ada saluran peringatan, sehingga peringatan tidak sampai ke siapa pun. Tambahkan satu saluran di bagian `monitoring:` pada `config.yml`.
+
+{% endif %}
+**Siapa yang mengawasi server pemantauan?**
+{% if f.monitoring.uptimekuma %}
+Uptime Kuma, di server lain, memeriksa bahwa server pemantauan masih hidup.
+{% endif %}
+{% if f.monitoring.heartbeat %}
+Layanan heartbeat di `{{ f.monitoring.heartbeat }}` menunggu sinyal setiap beberapa menit.
+{% endif %}
+{% if not f.monitoring.uptimekuma and not f.monitoring.heartbeat %}
+
+> **Penting:** tidak ada yang mengawasi server pemantauan. Jika server itu berhenti, tidak ada peringatan yang terkirim. Tambahkan Uptime Kuma di server lain, atau layanan heartbeat.
+{% endif %}
+
+**Membungkam peringatan:** untuk menghentikan peringatan sementara (misalnya saat pekerjaan terencana), buka Alertmanager dan buat sebuah *silence*.
+
+## Aturan peringatan {#monitoring-rules}
+
+Ada {{ alerts | length }} aturan yang berlaku untuk sistem ini. *Critical* berarti segera ditangani; *warning* berarti perlu dilihat dalam waktu dekat. Isi peringatan dikirim dalam bahasa Inggris, jadi keterangan yang belum diterjemahkan di tabel ini juga tetap berbahasa Inggris.
+
+{% for group, rules in alerts | groupby("group") %}
+| Peringatan {{ ALERTGROUP.get(group, group) }} | Tingkat | Artinya |
+|:-------------------------|:---------|:------------------------------------------------|
+{% for r in rules %}
+| {{ r.name }} | {{ r.severity }} | {{ CRITICAL[r.name] if r.name in CRITICAL else (r.summary | md) }} |
+{% endfor %}
+
+{% endfor %}
+{% elif mon == "beszel" %}
+## Sistem pemantauan {#monitoring-tool}
+
+Beszel menampilkan CPU, memori, disk, dan container setiap server di <{{ app["beszel"].web[0].url }}>. Beszel tidak menyimpan log.
+
+> **Penting:** Beszel tidak mengirim peringatan sampai Anda mengaturnya di halaman Beszel. Lakukan ini saat serah terima, lalu uji.
+
+{% else %}
+> **Penting:** **Anda tidak menerima peringatan.** Tidak ada aplikasi pemantauan yang dipasang, sehingga tidak ada yang diberi tahu saat server atau aplikasi rusak.
+
+{% endif %}
+{% if has("uptimekuma") %}
+## Uptime Kuma {#monitoring-uptimekuma}
+
+Uptime Kuma di <{{ app["uptimekuma"].web[0].url }}> memeriksa setiap menit bahwa halaman web menjawab. Pemeriksaannya dibuat pada instalasi pertama.
+
+> **Penting:** Uptime Kuma tidak mengirim notifikasi sampai Anda menambahkannya di menu "Settings" (email, Telegram, dan sebagainya). Lakukan ini saat serah terima, lalu uji.
+
+{% endif %}
+# Panduan operasional {#runbook}
+
+## Aturan utama {#runbook-rules}
+
+1. **Setiap perubahan dilakukan melalui `config.yml`,** lalu jalankan `./install.sh`. Perintah ini hanya mengubah yang berbeda, dan aman dijalankan ulang setelah gagal.
+2. **Selalu jalankan dari komputer yang menyimpan `state/`.** Di komputer lain, ansibro membuat kata sandi baru yang tidak cocok dengan sistem yang berjalan.
+3. `--check` (uji coba tanpa perubahan) tidak didukung.
+
+**Siapa yang dapat menjalankan program instalasi:** komputer macOS atau Linux dengan Python 3.12 atau lebih baru, ansibro {{ f.ansibro.version or "(versi yang sama)" }}, `config.yml`, dan `state/`. Saat ini: {{ vendor_name if state_owner == "vendor" else client_name }}.
+
+## Prosedur {#runbook-procedures}
+
+Semua perintah di server dijalankan setelah login SSH (lihat [bab 5](#access)). `/opt/ansibro` milik root, jadi perintahnya memakai `sudo`.
+
+### Menambah atau menghapus aplikasi {#runbook-app}
+
+- **Menambah:** tambahkan aplikasi di bagian `apps:` pada `config.yml`, lalu jalankan `./install.sh`.
+- **Menghapus:** hapus aplikasi dari `config.yml`, lalu jalankan `./install.sh`. Aplikasi berhenti; datanya tetap di `/opt/ansibro/<app>` sampai Anda menghapusnya dengan `sudo rm -rf`.
+- **Memeriksa:** `tests/check.py`.
+
+### Menambah atau menghapus server {#runbook-server}
+
+- **Menambah:** tambahkan server di `nodes:` **setelah** {{ f.first_manager }}, lalu jalankan `./install.sh`.
+- **Menghapus:** pindahkan dulu aplikasinya, hapus server dari `config.yml`, lalu jalankan:
+
+  ```sh
+  ./install.sh -e remove_nodes=true
+  ```
+
+- **Jangan pernah menghapus {{ f.first_manager }}.**
+
+{% if swarm %}
+### Menaikkan atau menurunkan peran server {#runbook-promote}
+
+Di {{ f.first_manager }}: `sudo docker node promote <name>` (worker menjadi manager) atau `sudo docker node demote <name>`.
+
+{% endif %}
+{% if patroni %}
+### Mengubah manager saat PostgreSQL memakai Patroni {#runbook-patroni}
+
+Di setiap manager, hentikan dan kosongkan etcd, lalu jalankan `./install.sh`. Selama sekitar 60 detik database tidak menerima penulisan.
+
+```sh
+cd /opt/ansibro/etcd && sudo docker compose down && sudo rm -rf data managers
+```
+
+{% endif %}
+### Memperbarui aplikasi atau Docker {#runbook-upgrade}
+
+1. Di `versions.yml`, ubah tag **dan** digest aplikasi. Baca digest-nya dengan `docker buildx imagetools inspect <image>:<tag>`.
+2. Jalankan `./install.sh`. Docker diperbarui satu server demi satu server.
+{% if has("postgres") %}
+3. Pembaruan versi besar PostgreSQL (misalnya 18 ke 19) memerlukan dump dan restore manual.
+{% endif %}
+
+{% if f.tls == "letsencrypt" and swarm %}
+### Mengambil ulang sertifikat Let's Encrypt {#runbook-certs}
+
+DNS harus benar dan port 80 terbuka. Di {{ f.first_manager }}:
+
+```sh
+sudo docker service update --force traefik_traefik
+```
+
+{% endif %}
+### Menyalakan ulang aplikasi {#runbook-restart}
+
+{% if swarm %}
+- Aplikasi cluster: `sudo docker service update --force <stack>_<service>` di {{ f.first_manager }}. Lihat daftar layanannya dengan `sudo docker service ls`.
+{% else %}
+- Aplikasi cluster: lihat kondisinya dengan `sudo k3s kubectl get pods -A` di {{ f.first_manager }}.
+{% endif %}
+- Aplikasi di server tertentu: `cd /opt/ansibro/<app> && sudo docker compose restart` di server itu.
+
+### Setelah server dinyalakan ulang {#runbook-reboot}
+
+- Aplikasi menyala dengan sendirinya. Backup yang terlewat dijalankan saat server menyala.
+{% if has("openbao") %}
+- **OpenBao menyala dalam keadaan terkunci (sealed).** Buka kuncinya (unseal) di halaman webnya dengan unseal key dari file kredensial, atau jalankan `./install.sh`.
+{% endif %}
+
+### Terkunci dari SSH {#runbook-locked}
+
+Buka konsol server di halaman web penyedia server, login, lalu jalankan `sudo ufw disable`. Setelah itu perbaiki `ssh.allow_from` dan jalankan `./install.sh` (firewall akan aktif kembali).
+
+{% if galera %}
+### Semua server MariaDB berhenti {#runbook-galera}
+
+Jika ketiga server MariaDB berhenti bersamaan, cluster Galera harus dinyalakan ulang secara manual sesuai dokumentasi MariaDB ("bootstrap").
+
+{% endif %}
+### Batas Docker Hub (toomanyrequests) {#runbook-dockerhub}
+
+Tunggu beberapa saat, atau login ke Docker Hub dengan `sudo docker login` di {{ f.first_manager }}.
+
+{% if swarm %}
+### Label server {#runbook-labels}
+
+ansibro hanya menambah label. Hapus label dengan `sudo docker node update --label-rm <label> <name>`.
+
+{% endif %}
+{% if f.offline %}
+### Jam tanpa internet {#runbook-ntp}
+
+Cantumkan server waktu lokal di `/etc/chrony/sources.d/local.sources` di setiap server.
+
+{% endif %}
+{% if mon == "victoria" %}
+## Panduan menangani insiden {#runbook-incidents}
+
+Yang perlu dilakukan saat peringatan critical masuk: periksa dulu, lalu perbaiki, lalu eskalasikan ke tim dukungan ([bab 11](#support)) jika belum selesai dalam satu jam.
+
+{% if "NodeDown" in alert_names %}
+### NodeDown {#incident-nodedown}
+
+- **Artinya:** sebuah server mati atau tidak dapat dihubungi.
+- **Periksa:** kondisi server di halaman web penyedia server; lalu coba SSH.
+- **Perbaiki:** nyalakan server. Setelah server kembali, aplikasi menyala dengan sendirinya{% if has("openbao") %}; buka kunci OpenBao jika berjalan di server itu{% endif %}.
+- **Eskalasi:** jika server tidak mau menyala.
+
+{% endif %}
+{% if "DiskFull" in alert_names %}
+### DiskFull {#incident-diskfull}
+
+- **Artinya:** sebuah disk sudah terisi lebih dari 95%.
+- **Periksa:** `df -h` di server itu.
+- **Perbaiki:** hapus file lama yang tidak diperlukan, atau perbesar disk di penyedia server.
+- **Eskalasi:** jika Anda tidak tahu apa yang memenuhi disk.
+
+{% endif %}
+{% if "AppDown" in alert_names or "ContainerDown" in alert_names %}
+### AppDown dan ContainerDown {#incident-appdown}
+
+- **Artinya:** sebuah aplikasi tidak menjawab, atau container-nya berhenti.
+- **Periksa:** `sudo docker ps` dan `sudo docker logs <app>` di server itu.
+- **Perbaiki:** `cd /opt/ansibro/<app> && sudo docker compose restart`.
+- **Eskalasi:** jika aplikasi berhenti lagi.
+
+{% endif %}
+{% if "SwarmServiceDown" in alert_names %}
+### SwarmServiceDown {#incident-servicedown}
+
+- **Artinya:** sebuah aplikasi cluster berjalan dengan salinan lebih sedikit dari seharusnya.
+- **Periksa:** `sudo docker service ps <service>` dan `sudo docker service logs <stack>_<service>` di {{ f.first_manager }}.
+- **Perbaiki:** `sudo docker service update --force <stack>_<service>`.
+- **Eskalasi:** jika jumlah salinan tidak kembali normal.
+
+{% endif %}
+{% if "K3sDeploymentDown" in alert_names %}
+### K3sDeploymentDown {#incident-servicedown}
+
+- **Artinya:** sebuah aplikasi cluster berjalan dengan salinan lebih sedikit dari seharusnya.
+- **Periksa:** `sudo k3s kubectl get pods -A` dan `sudo k3s kubectl get nodes` di {{ f.first_manager }}.
+- **Perbaiki:** periksa dulu server tempat pod yang macet; penyebab paling umum adalah server yang berhenti.
+- **Eskalasi:** jika jumlah salinan tidak kembali normal.
+
+{% endif %}
+{% if "PostgresNoPrimary" in alert_names and patroni %}
+### PostgresNoPrimary {#incident-postgres}
+
+- **Artinya:** tidak ada server PostgreSQL yang menerima penulisan. Aplikasi tidak dapat menyimpan data.
+- **Periksa:** `sudo docker exec postgres patronictl list` di salah satu server database.
+- **Perbaiki:** pastikan etcd berjalan di semua manager dan server database menyala.
+- **Eskalasi:** segera.
+
+{% endif %}
+{% if "MariadbClusterSmall" in alert_names and galera %}
+### MariadbClusterSmall {#incident-mariadb}
+
+- **Artinya:** server MariaDB di cluster Galera kurang dari 3.
+- **Periksa:** server MariaDB mana yang mati (`sudo docker ps` di setiap server).
+- **Perbaiki:** nyalakan server yang berhenti. Jika ketiganya berhenti, lihat [Semua server MariaDB berhenti](#runbook-galera).
+- **Eskalasi:** jika hanya tersisa satu server.
+
+{% endif %}
+{% if "CacheNoPrimary" in alert_names and f.cache and f.cache.ha %}
+### CacheNoPrimary {#incident-cache}
+
+- **Artinya:** tidak ada server cache yang menerima penulisan.
+- **Periksa:** `sudo docker exec valkey-sentinel valkey-cli -p 26379 SENTINEL masters`{% if f.cache.app == "redis" %} (untuk Redis, namanya `redis-sentinel` dan `redis-cli`){% endif %}.
+- **Perbaiki:** nyalakan server cache yang berhenti; Sentinel akan memilih primary baru.
+- **Eskalasi:** segera.
+
+{% endif %}
+{% if "OpenBaoSealed" in alert_names %}
+### OpenBaoSealed {#incident-openbao}
+
+- **Artinya:** OpenBao terkunci setelah dinyalakan ulang. Pemeriksaan kesehatannya tetap hijau.
+- **Periksa:** buka <https://openbao.{{ f.domain }}/ui/>.
+- **Perbaiki:** buka kuncinya dengan kunci `{{ groups["recovery"][first_lang] }}/OpenBao unseal key`, atau jalankan `./install.sh`.
+- **Eskalasi:** jika kuncinya tidak berfungsi.
+
+{% endif %}
+{% if "BackupTooOld" in alert_names %}
+### BackupTooOld {#incident-backup}
+
+- **Artinya:** sebuah server tidak punya backup yang berhasil selama 26 jam.
+- **Periksa:** `journalctl -u ansibro-backup` dan `systemctl is-active ansibro-backup.timer` di server itu.
+- **Perbaiki:** atasi kesalahan yang tertulis di log, lalu jalankan `sudo ansibro-backup`.
+- **Eskalasi:** jika tempat penyimpanan backup tidak dapat dihubungi atau penuh.
+
+{% endif %}
+{% if "CertificateEndsSoon" in alert_names %}
+### CertificateEndsSoon {#incident-cert}
+
+- **Artinya:** sebuah sertifikat web akan berakhir dalam 14 hari.
+- **Periksa:** tanggalnya melalui ikon gembok di browser.
+{% if f.tls == "letsencrypt" and swarm %}
+- **Perbaiki:** periksa DNS dan port 80, lalu jalankan `sudo docker service update --force traefik_traefik`.
+{% elif f.tls == "letsencrypt" %}
+- **Perbaiki:** pastikan DNS mengarah ke {{ f.traefik_nodes | join(", ") }} dan port 80 terbuka.
+{% else %}
+- **Perbaiki:** ganti file sertifikat dan file kunci, lalu jalankan `./install.sh`.
+{% endif %}
+- **Eskalasi:** seminggu sebelum sertifikat berakhir.
+
+{% endif %}
+{% if "WireGuardPeerDown" in alert_names %}
+### WireGuardPeerDown {#incident-wireguard}
+
+- **Artinya:** dua server tidak dapat berkomunikasi melalui WireGuard.
+- **Periksa:** `sudo wg show` di kedua server.
+- **Perbaiki:** pastikan port UDP {{ f.wireguard_port }} terbuka di antara keduanya dan kedua server menyala.
+- **Eskalasi:** jika jalurnya tetap terputus.
+
+{% endif %}
+{% endif %}
+## Yang tidak dikerjakan ansibro {#runbook-not}
+
+| Pekerjaan | Penanggung jawab yang disarankan |
+|:------------------------------------|:------------------------------------------|
+| Pembaruan keamanan sistem operasi | Operator {{ client_name }}, atau tim dukungan |
+| Memperbarui ansibro itu sendiri | pemegang `state/` ({{ vendor_name if state_owner == "vendor" else client_name }}) |
+| Memperbarui sertifikat registry (berlaku 10 tahun sejak instalasi pertama) | pemegang `state/` |
+| Menambah dan menghapus kunci SSH | Operator {{ client_name }} |
+
+# Keamanan {#security}
+
+## Apa yang terbuka ke internet {#security-exposure}
+
+{% set public = web | selectattr("guard", "equalto", "public") | list %}
+{% if public %}
+Halaman berikut terbuka untuk siapa saja. Setiap halaman punya login sendiri, atau memang ditujukan untuk publik:
+
+{% for w in public %}
+- <{{ w.url }}>{% if w.login == "none" %} (tanpa login: API Anda){% endif %}
+
+{% endfor %}
+
+{% else %}
+Tidak ada halaman web yang terbuka untuk siapa saja tanpa login.
+{% endif %}
+
+Siapa yang dapat menjangkau sisanya:
+
+- SSH: {{ anyone(f.ssh.allow_from) }}.
+- Halaman admin: {{ anyone(f.admin_allow_from) }}.
+
+## Lalu lintas di dalam cluster {#security-plaintext}
+
+{% set plain = f.apps | selectattr("ports") | list %}
+{% if plain %}
+Layanan berikut berkomunikasi tanpa enkripsi, sehingga hanya terbuka untuk server dalam cluster: {% for x in plain %}{{ NAME.get(x.name, x.name) }}{{ ", " if not loop.last else "." }}{% endfor %}
+
+{% if f.wireguard %}
+WireGuard mengenkripsi lalu lintas ini antarserver.
+{% endif %}
+{% endif %}
+{% if mon == "victoria" %}
+Di dalam cluster, port pemantauan (8428, 9428, 8880, 9093, dan 3000) tidak memakai login.
+{% endif %}
+
+## Salinan kata sandi di server {#security-copies}
+
+Server menyimpan salinan kata sandi yang hanya dapat dibaca oleh root:
+
+{% if f.backup.enabled %}
+- `/opt/ansibro/backup/installer/state/secrets/` di {{ f.first_manager }}: **semua kata sandi**, diperbarui setiap instalasi, dan ikut tersimpan di setiap backup {{ f.first_manager }}.
+- `/opt/ansibro/backup/password` di setiap server: kata sandi backup.
+{% endif %}
+- File `.env` di `/opt/ansibro/<app>/` untuk aplikasi yang memakainya.
+{% if has("portainer") %}
+- `/opt/ansibro/portainer/admin_password`.
+{% endif %}
+{% if has("authelia") %}
+- `/opt/ansibro/authelia/config/` (konfigurasi, pengguna, dan notifikasi).
+{% endif %}
+- `/root/.docker/config.json` (login registry).
+
+Jadi siapa pun yang punya akses root di {{ f.first_manager }}{% if f.backup.enabled %}, atau yang memegang kata sandi backup dan tempat penyimpanannya{% endif %}, memiliki semua kata sandi.
+Di komputer instalasi, `state/` {% if f.state == "age" %}**terenkripsi** (state.age){% elif f.state == "plain" %}**tidak terenkripsi**. Rekomendasi: aktifkan enkripsi ansibro (age){% else %}tidak ada{% endif %}.
+
+## Kunci SSH {#security-ssh}
+
+*Kunci SSH* adalah sepasang file yang memungkinkan seseorang login tanpa kata sandi. ansibro tidak menambah atau menghapus kunci SSH. Siapa yang boleh login ditentukan oleh daftar di `~/.ssh/authorized_keys` milik `{{ f.ssh.user }}` di setiap server; jaga daftar itu tetap pendek dan hapus kunci orang yang sudah tidak bertugas.
+
+{% set agpl = [] %}
+{% for x in f.apps if "AGPL" in x.license %}{% set _ = agpl.append(NAME.get(x.name, x.name)) %}{% endfor %}
+{% if agpl %}
+## Lisensi yang perlu diperhatikan {#security-agpl}
+
+{{ agpl | join(", ") }} memakai lisensi AGPL{% if has("victoria") %} (untuk Victoria: Grafana){% endif %}. Pemakaiannya gratis. Jika Anda mengubah kodenya dan menyediakannya melalui jaringan, Anda wajib memublikasikan perubahan tersebut. Lihat [Lampiran B](#appendix-licenses).
+
+{% endif %}
+## Masa berlaku sertifikat {#security-certs}
+
+| Sertifikat | Berakhir |
+|:------------------------------|:------------------------------------------|
+{% if f.tls == "letsencrypt" %}
+| Halaman web (Let's Encrypt) | diperbarui otomatis |
+{% elif f.tls == "custom" %}
+| Halaman web (custom) | {{ f.tls_cert.not_after if f.tls_cert else "*Belum diperiksa*" }} |
+{% else %}
+| Halaman web (self-signed) | dibuat ulang setiap kali menyala |
+{% endif %}
+| Registry image (internal) | 10 tahun setelah instalasi pertama |
+
+# Dukungan {#support}
+
+{% if support.get("contacts") %}
+Hubungi orang-orang berikut, sesuai urutan:
+
+| Nama | Peran | Telepon | Email |
+|:-------------------|:-------------------|:-------------------|:------------------------------|
+{% for c in support.get("contacts") %}
+| {{ np(c.get("name")) }} | {{ np(c.get("role")) }} | {{ np(c.get("phone")) }} | {{ np(c.get("email")) }} |
+{% endfor %}
+{% else %}
+Kontak: {{ NP }}.
+{% endif %}
+
+| Hal | Keterangan |
+|:--------------------|:---------------------------------------------------|
+| Perusahaan | {{ np(vendor.get("name")) }} |
+| Telepon | {{ np(vendor.get("phone")) }} |
+| Email | {{ np(vendor.get("email")) }} |
+| Situs web | {{ np(vendor.get("website")) }} |
+| Jam layanan | {{ np(support.get("hours")) }} |
+| Waktu respons | {{ np(support.get("sla")) }} |
+| Garansi | {% if warranty.get("months") %}{{ warranty.get("months") }} bulan{% else %}{{ NP }}{% endif %}{% if warranty.get("until") %}, sampai {{ warranty.get("until") | date }}{% endif %} |
+| Cakupan garansi | {{ np(warranty.get("scope")) }} |
+{% if bast.get("stage") == "pho" %}
+| Serah terima akhir | {{ npdate(bast.get("fho_date")) }} |
+{% endif %}
+| Akses vendor berakhir | {{ npdate(a.get("vendor_access_end")) }} |
+
+**Cara melaporkan masalah.** Sebutkan apa yang Anda lihat, kapan mulai terjadi, halaman atau server mana, dan apa yang sudah Anda coba. Tangkapan layar sangat membantu.
+
+> **Penting:** jangan pernah mengirim kata sandi di laporan, email, atau chat. Tim dukungan tidak pernah memintanya.
+
+# Uji penerimaan {#acceptance}
+
+ansibro punya *uji penerimaan* sendiri (`tests/check.py`). Uji ini login ke setiap aplikasi dan memeriksa cluster, backup, serta pemantauan.
+
+{% if check %}
+| Hal | Keterangan |
+|:--------------------------|:---------------------------------------------|
+| Tanggal | {{ check.date or NP }} |
+| Lulus | {{ check.passed }} |
+| Gagal | {{ check.failed }} |
+| Dilewati | {{ check.skipped }} |
+
+{% if check.stale %}
+> **Penting:** uji ini dijalankan sebelum instalasi terakhir ({{ f.last_install }}). Jalankan ulang.
+
+{% endif %}
+{% if check.failed %}
+> **Penting:** {{ check.failed }} pemeriksaan gagal. Lihat tabel.
+
+{% endif %}
+| Hasil | Pemeriksaan |
+|:---------|:--------------------------------------------------------------|
+{% for r in check.rows %}
+| {{ "**FAIL**" if r.result == "FAIL" else r.result }} | {{ r.text | md }} |
+{% endfor %}
+
+{% if check.web %}
+Setiap halaman web juga dibuka dari luar pada hari yang sama:
+
+| Alamat | Jawaban DNS | Sertifikat berakhir | Status |
+|:------------------------------------|:-------------------|:-------------|:-----------------|
+{% for w in check.web %}
+| <{{ w.url }}> | {{ w.dns | join(", ") if w.dns else "*tidak ada jawaban*" }} | {{ w.not_after or "" }} | {% if w.status %}{{ w.status }}{% elif w.get("error") %}**galat** ({{ w.get("error") }}){% else %}*tidak ada jawaban*{% endif %} |
+{% endfor %}
+
+Status HTTP 200 berarti halaman terbuka; 302, 401, atau 403 berarti halaman meminta login atau alamat Anda tidak ada di daftar izin. Hal ini normal untuk halaman admin.
+{% if f.tls == "selfsigned" %}
+Sertifikatnya adalah sertifikat bawaan Traefik (self-signed), seperti dijelaskan di [bab 3](#servers-tls).
+{% endif %}
+{% endif %}
+{% else %}
+Uji penerimaan **tidak dijalankan** untuk dokumen ini, sehingga belum ada hasil yang tercatat. Jalankan uji ini sebelum menandatangani berita acara serah terima.
+{% endif %}
+
+Berita acara serah terima memuat daftar periksa untuk sesi serah terima (lampiran pertamanya): setiap halaman web terbuka, setiap login berfungsi, 2FA sudah didaftarkan, file kredensial dapat dibuka, akses dari laptop berfungsi, ada backup terbaru, dan peringatan uji coba diterima{% if has("openbao") %}, serta klien memegang unseal key OpenBao{% endif %}.
+
+# Lampiran A. Versi perangkat lunak {#appendix-versions .unnumbered}
+
+| Aplikasi | Image | Tag | Digest |
+|:-----------|:--------------------------------------|:-----------------|:-------------|
+{% for x in f.apps %}
+{% for i in x.images %}
+| {{ NAME.get(x.name, x.name) if loop.first else "" }} | `{{ i.repo }}` | {{ i.tag }} | `{{ i.digest }}` |
+{% else %}
+| {{ NAME.get(x.name, x.name) }} | {{ x.version or "" }} | | |
+{% endfor %}
+{% endfor %}
+
+| Komponen | Versi |
+|:--------------------|:---------------------------------------------------|
+{% for c in f.components if c.version and c.name != "k3s" %}
+| {{ c.name }} | {{ c.version }} |
+{% endfor %}
+{% for d in f.versions.docker %}
+| {{ d.split(" ")[0] }} | {{ d.split(" ")[1:] | join(" ") }} |
+{% endfor %}
+{% if f.versions.k3s %}
+| k3s | {{ f.versions.k3s }} |
+{% endif %}
+| ansibro | {{ f.ansibro.version or f.ansibro.describe or NP }} |
+| dejavu | {{ dejavu }} |
+
+Digest adalah 12 karakter pertama sidik jari image (sha256). Digest memastikan image yang dipakai persis sama.
+
+# Lampiran B. Lisensi {#appendix-licenses .unnumbered}
+
+Semua bagian sistem ini adalah perangkat lunak sumber terbuka (open source).
+
+| Bagian | Lisensi |
+|:-----------------|:------------------------------------------------------|
+{% for x in f.apps %}
+| {{ NAME.get(x.name, x.name) }} | {{ x.license | md }} |
+{% endfor %}
+{% for c in f.components if c.license %}
+| {{ c.name }} | {{ c.license }} |
+{% endfor %}
+
+# Lampiran C. Konfigurasi {#appendix-config .unnumbered}
+
+Berikut `config.yml` sebagaimana dibaca oleh ansibro, disusun ulang oleh dejavu. Komentar di file aslinya hilang, sebagian nilai adalah nilai bawaan, dan setiap rahasia diganti dengan lokasinya di file kredensial. Komentar di dalam blok di bawah ini sengaja dibiarkan dalam bahasa Inggris, seperti di file aslinya.
+
+{% set REC = groups["recovery"][first_lang] ~ "/config.yml " %}
+```yaml
+domain: {{ f.domain }}
+orchestrator: {{ f.orchestrator }}
+tls: {{ f.tls }}
+{% if f.acme_email %}
+acme_email: {{ f.acme_email }}
+{% endif %}
+{% if f.acme_server %}
+acme_server: https://{{ f.acme_server }}/...   # only the host is recorded
+{% endif %}
+{% if f.tls == "custom" %}
+tls_cert: <file>   # the certificate file
+tls_key: <file>    # the key file, not in this document
+{% endif %}
+timezone: {{ f.timezone }}
+{% if f.offline %}
+offline: true
+{% endif %}
+ssh:
+  user: {{ f.ssh.user }}
+  port: {{ f.ssh.port }}
+  key: <your SSH private key>
+{% if f.ssh.allow_from %}
+  allow_from: [{{ f.ssh.allow_from | join(", ") }}]
+{% endif %}
+{% if f.admin_allow_from %}
+admin_allow_from: [{{ f.admin_allow_from | join(", ") }}]
+{% endif %}
+{% if f.firewall_allow %}
+firewall_allow:
+{% for r in f.firewall_allow %}
+  - {{ "{" }}{% for k, v in r.items() %}{{ k }}: {{ v }}{{ ", " if not loop.last else "" }}{% endfor %}{{ "}" }}
+{% endfor %}
+{% endif %}
+{% if f.wireguard %}
+wireguard: true
+{% if f.wireguard_port != 51820 %}
+wireguard_port: {{ f.wireguard_port }}
+{% endif %}
+{% endif %}
+nodes:
+{% for n in f.nodes %}
+  - {name: {{ n.name }}, ip: {{ n.ip }}, host: {{ n.host }}, role: {{ n.role }}}
+{% endfor %}
+apps:
+{% for x in f.apps %}
+  {{ x.name }}: {% if x.cluster %}{{ "swarm" if swarm else "cluster" }}{% elif x.nodes | length == 1 %}{{ x.nodes[0] }}{% else %}[{{ x.nodes | join(", ") }}]{% endif %}
+
+{% endfor %}
+{% if mon == "victoria" %}
+monitoring:
+{% for c in f.monitoring.channels %}
+{% if c.kind == "telegram" %}
+  telegram:
+    bot_token: <kdbx: {{ REC }}monitoring.telegram.bot_token>
+    chat_id: <not recorded>
+{% elif c.kind == "email" %}
+  email:
+    to: {{ c.to }}
+    smarthost: {{ c.host }}:<port>
+{% if "monitoring.email.password" in f.config_secrets %}
+    password: <kdbx: {{ REC }}monitoring.email.password>
+{% endif %}
+{% else %}
+  webhook: <kdbx: {{ REC }}monitoring.webhook>
+{% endif %}
+{% endfor %}
+{% if f.monitoring.heartbeat %}
+  heartbeat_url: <kdbx: {{ REC }}monitoring.heartbeat_url>
+{% endif %}
+  keep_days: {{ f.monitoring.keep_days }}
+{% endif %}
+{% if f.backup.enabled %}
+backup:
+{% if "backup.repository" in f.config_secrets %}
+  repository: <kdbx: {{ REC }}backup.repository>
+{% else %}
+  repository: {{ f.backup.where if f.backup.kind == "local" else f.backup.kind ~ ":" ~ f.backup.where }}
+{% endif %}
+{% if "backup.s3_access_key" in f.config_secrets %}
+  s3_access_key: <kdbx: {{ REC }}backup.s3_access_key>
+  s3_secret_key: <kdbx: {{ REC }}backup.s3_secret_key>
+{% endif %}
+  time: "{{ f.backup.time }}"
+  keep_daily: {{ f.backup.keep.daily }}
+  keep_weekly: {{ f.backup.keep.weekly }}
+  keep_monthly: {{ f.backup.keep.monthly }}
+{% endif %}
+```
+
+# Lampiran D. Pengaturan SSH {#appendix-ssh .unnumbered}
+
+Baris-baris berikut dimasukkan ke file pengaturan SSH di laptop (`~/.ssh/config`; di Windows `%USERPROFILE%\.ssh\config`). Baris yang sama ada di file `ssh_config.txt`.
+
+```text
+{% include "ssh_config.txt.j2" %}
+```
+
+# Lampiran E. Daftar periksa penggantian kata sandi {#appendix-passwords .unnumbered}
+
+Centang setiap kata sandi yang sudah diganti, paling lambat {{ days }} hari setelah serah terima. [Bab 6](#credentials) menjelaskan caranya.
+
+| Cek | Akun | Entri di file kredensial | Diganti pada | Oleh |
+|:----|:-------------------|:------------------------------|:-------------|:-------------|
+{% for s in people_rows if cls(s) != "internal" %}
+| `☐` | {{ s.title }} | {{ entry(s) }} | | |
+{% endfor %}
+| `☐` | Frasa sandi file kredensial | | | |
+
+# Lampiran F. Masalah yang diketahui dan rekomendasi {#appendix-issues .unnumbered}
+
+{% if not f.warnings and not a.get("known_issues") %}
+Tidak ada masalah yang diketahui.
+{% endif %}
+{% for w in f.warnings %}
+{% if w.id == "not-documented" %}
+- **Pengaturan yang tidak dikenal dejavu (`{{ w.key }}`).** `config.yml` memuat pengaturan yang tidak dijelaskan dalam dokumen ini. Tanyakan fungsinya kepada vendor.
+{% elif w.id == "unknown-app" %}
+- **Aplikasi yang tidak dikenal dejavu ({{ w.app }}).** Aplikasi ini terpasang, tetapi dokumen ini tidak memuat rincian halaman, backup, atau kata sandinya. Tanyakan kepada vendor.
+{% elif w.id == "missing-secret" %}
+- **Sebuah file kata sandi tidak ada (`{{ w.name }}`).** Seharusnya ansibro membuatnya. Jalankan ulang `./install.sh`, lalu buat ulang dokumen ini.
+{% elif w.id == "stale-secret" %}
+- **Kata sandi dari aplikasi yang sudah dihapus (`{{ w.name }}`).** Kata sandi ini disimpan di kelompok "{{ groups["old"][first_lang] }}" pada file kredensial, jadi tidak ada yang hilang. Kata sandi ini boleh dihapus jika Anda setuju.
+{% elif w.id == "unknown-secret" %}
+- **File kata sandi yang tidak dikenal dejavu (`{{ w.name }}`).** File ini disimpan di kelompok "{{ groups["internal"][first_lang] }}". Tanyakan kegunaannya kepada vendor.
+{% elif w.id == "custom-cert-expires" %}
+- **Sertifikat web segera berakhir ({{ w.days }} hari lagi).** Ganti sertifikatnya, lalu jalankan `./install.sh`.
+{% elif w.id == "allowlist-empty" %}
+- **Daftar izin `{{ w.list }}` kosong.** {{ "SSH" if w.list == "ssh.allow_from" else "Halaman admin" }} dapat dijangkau dari alamat internet mana pun. Rekomendasi: cantumkan alamat kantor dan staf Anda.
+{% elif w.id == "tls-selfsigned" %}
+- **Sertifikat self-signed.** Browser menampilkan peringatan di setiap halaman. Rekomendasi: pakai sertifikat dari otoritas sertifikat (CA) perusahaan Anda (`tls: custom`).
+{% elif w.id == "no-backup" %}
+- **Tidak ada backup.** Server yang hilang berarti data yang hilang. Rekomendasi: tambahkan backup ke tempat penyimpanan di luar server-server ini.
+{% elif w.id == "backup-no-alert" %}
+- **Tidak ada peringatan jika backup gagal.** Peringatan backup memerlukan Victoria monitoring. Periksa backup secara manual setiap minggu.
+{% elif w.id == "no-monitoring" %}
+- **Tidak ada pemantauan.** Anda tidak menerima peringatan. Rekomendasi: pasang Beszel atau Victoria monitoring.
+{% elif w.id == "uptimekuma-notifications-manual" %}
+- **Notifikasi Uptime Kuma.** Notifikasi harus ditambahkan manual di menu "Settings" Uptime Kuma, lalu diuji.
+{% elif w.id == "beszel-alerts-manual" %}
+- **Peringatan Beszel.** Peringatan harus diatur manual di halaman Beszel, lalu diuji.
+{% elif w.id == "swarmpit-old-databases" %}
+- **Swarmpit memakai database versi lama** (CouchDB 2.3 dan InfluxDB 1.8). Ini risiko yang sudah diketahui. Pertimbangkan Portainer sebagai gantinya.
+{% elif w.id == "ansibro-untested-version" %}
+- **ansibro {{ w.version }} belum diuji dengan dejavu versi ini** (yang sudah diuji: {{ w.tested }}). Periksa dokumen dengan lebih teliti.
+{% elif w.id == "ansibro-dirty" %}
+- **Salinan ansibro memiliki perubahan lokal.** Sistem mungkin berbeda dari versi ansibro yang dirilis. Minta rincian perubahannya kepada vendor.
+{% elif w.id == "shared-state" %}
+- **Beberapa konfigurasi memakai satu `state/` yang sama** ({{ w.configs | join(", ") }}). File kredensial mungkin memuat kata sandi sistem lain. Periksa bersama vendor.
+{% else %}
+- **{{ w.id }}.** {% for k, v in w.items() if k != "id" %}{{ k }}: {{ v | md }}{{ "; " if not loop.last else "" }}{% endfor %}
+{% endif %}
+{% endfor %}
+{% for x in a.get("known_issues") or [] %}
+- {{ x | md }}
+{% endfor %}
+
+# Lampiran G. Sumber data {#appendix-sources .unnumbered}
+
+Setiap fakta dalam dokumen ini berasal dari salah satu sumber berikut. dejavu tidak pernah membuka file kata sandi. Nama sumber ditulis dalam bahasa Inggris, seperti yang dicatat oleh dejavu.
+
+| Fakta | Sumber |
+|:------------------------------------------|:------------------------------------------|
+{% for what, where in f.sources.items() %}
+| {{ what }} | {{ where }} |
+{% endfor %}
+| nama, tanggal, kontak, lingkup, catatan | jawaban vendor (`handover.yml`) |
+{% if check %}
+| uji penerimaan | `tests/check.py`, dijalankan pada {{ check.date or NP }} |
+{% endif %}
+
+# Lampiran H. Glosarium {#appendix-glossary .unnumbered}
+
+| Istilah | Arti |
+|:-----------------|:----------------------------------------------------------------|
+| 2FA | Login dua faktor: kata sandi ditambah kode dari aplikasi di ponsel Anda. |
+| ansibro | Program instalasi yang memasang sistem ini. |
+| Aplikasi autentikator | Aplikasi di ponsel yang menampilkan kode 6 angka baru setiap 30 detik. |
+| Backup | Salinan data yang disimpan di tempat lain. |
+| Cluster | Sekelompok server yang bekerja sebagai satu kesatuan. |
+| Container | Aplikasi yang dikemas bersama semua kebutuhannya, sehingga berjalan sama di mana pun. |
+| Daftar izin (allow-list) | Daftar alamat internet yang boleh terhubung. Jika kosong, siapa saja boleh. |
+| DNS | Buku alamat internet: mengubah nama menjadi alamat server. |
+{% if swarm %}
+| Docker Swarm | Program yang menjalankan container di seluruh cluster. |
+{% endif %}
+| File kredensial | File KeePass (`.kdbx`) terkunci yang menyimpan semua kata sandi. |
+| Firewall | Penyaring yang menentukan koneksi mana yang boleh masuk ke server. |
+| Frasa sandi (passphrase) | Kata sandi untuk membuka file kredensial. |
+{% if galera %}
+| Galera | Cara MariaDB menjaga tiga server tetap sinkron. |
+{% endif %}
+| Image | Bentuk kemasan sebuah aplikasi, tempat container dijalankan. |
+{% if not swarm %}
+| k3s | Versi ringan Kubernetes yang menjalankan container di seluruh cluster. |
+{% endif %}
+| KeePassXC | Program gratis untuk membuka file kredensial. |
+| Ketersediaan tinggi (HA) | Suatu bagian tetap bekerja walaupun satu server berhenti. |
+| Kunci SSH | Sepasang file yang memungkinkan seseorang login tanpa kata sandi. |
+| Manager | Server yang mengendalikan cluster. |
+{% if patroni %}
+| Patroni | Program yang memilih primary PostgreSQL baru saat primary berhenti. |
+{% endif %}
+| Pemulihan (restore) | Mengembalikan data dari backup. |
+| Peringatan (alert) | Pesan yang dikirim saat ada masalah. |
+| Port | Pintu bernomor di server untuk satu jenis koneksi. |
+{% if f.database and f.database.ha or f.cache and f.cache.ha %}
+| Primary | Satu-satunya server dalam kelompoknya yang menerima penulisan; server lain menyimpan salinan. |
+{% endif %}
+| restic | Program backup. |
+{% if f.cache and f.cache.ha %}
+| Sentinel | Program yang memilih primary cache baru saat primary berhenti. |
+{% endif %}
+| Sertifikat | File yang membuktikan sebuah halaman web asli dan mengenkripsi koneksinya. |
+| Snapshot | Satu backup lengkap pada satu waktu tertentu. |
+| SSH | Cara aman untuk login ke server dan mengetik perintah di sana. |
+| state/ | Folder milik program instalasi yang berisi salinan semua kata sandi. |
+| TLS | Enkripsi halaman web (huruf "s" pada https). |
+| Traefik | Pintu masuk semua halaman web. |
+| Tunnel | Jalur privat melalui SSH dari laptop ke sebuah layanan di server. |
+| ufw | Program firewall di setiap server. |
+{% if f.wireguard %}
+| WireGuard | Jaringan terenkripsi antarserver. |
+{% endif %}

@@ -1,0 +1,102 @@
+{## README.txt of the handover pack: plain text, no Markdown. ##}
+{% set NP = "Not provided" %}
+{% set bast = a.get("bast") or {} %}
+{% set client = a.get("client") or {} %}
+{% set vendor = a.get("vendor") or {} %}
+{% set dns = a.get("dns") or {} %}
+{% set delivery = a.get("delivery") or {} %}
+{% set meterai = bast.get("meterai") or {} %}
+{% set copies = bast.get("copies") or 2 %}
+{% set pw_days = a.get("password_change_days") %}
+{% set system = a.get("environment") or f.domain %}
+{% set kdbx_name = slug ~ ("-kredensial.kdbx" if first_lang == "id" else "-credentials.kdbx") %}
+{% set osname = {"windows": "Windows", "macos": "macOS", "linux": "Linux"} %}
+{% set other = "id" if lang == "en" else "en" %}
+HANDOVER PACK: {{ system }} ({{ f.domain }})
+{{ "=" * (("HANDOVER PACK: " ~ system ~ " (" ~ f.domain ~ ")") | length) }}
+
+Client: {{ client.get("name") or NP }}
+Vendor: {{ vendor.get("name") or NP }}
+Date:   {{ (bast.date | date) if bast.get("date") else NP }}
+Made with dejavu {{ dejavu }} from ansibro {{ f.ansibro.version or NP }}.
+{% if draft %}
+
+THIS IS A DRAFT. Do not sign or hand it over: some answers are still missing.
+{% endif %}
+
+None of these files contains a password, except the credentials file, which
+is encrypted. Its passphrase is never in this pack.
+
+
+WHAT EACH FILE IS
+-----------------
+
+en/{{ slug }}-handover-certificate.pdf
+    The Handover and Acceptance Certificate, with Annex 1 (acceptance
+    checklist), Annex 2 (accounts, names only) and Annex 3 (the files and
+    their SHA-256 codes). Print and sign it.
+en/{{ slug }}-technical-documentation.pdf
+    The full technical documentation of the system.
+{% for o in oses %}
+en/{{ slug }}-laptop-guide-{{ o }}.pdf
+    How to reach the system from a {{ osname[o] }} laptop. For the client's staff.
+{% endfor %}
+en/*.md
+    The same documents as text (Markdown), a record that any editor can open.
+{% if lang_both %}
+{{ other }}/
+    The same set in {{ "Indonesian" if other == "id" else "English" }}. The Indonesian version prevails.
+{% endif %}
+{{ kdbx_name }}
+    The credentials file: every password, encrypted. Open it with KeePassXC.
+ssh_config.txt
+    Ready-made SSH settings for the client's operators.
+{% if dns.get("mode") == "hosts" %}
+hosts.txt
+    Lines for the hosts file of each laptop, because there is no DNS.
+{% endif %}
+{% if f.ca_file or (a.get("tls") or {}).get("client_ca") %}
+{{ slug }}-ca.crt
+    The certificate authority that each laptop must trust (public, not secret).
+{% endif %}
+SHA256SUMS
+    The SHA-256 code of every file, to check that nothing changed.
+README.txt
+    This file.
+
+
+WHAT TO PRINT AND SIGN
+----------------------
+
+Print the Handover Certificate {{ copies }} ({{ copies | words }}) times. During the
+handover session, go through Annex 1 together and initial each row. Then both
+parties sign every copy{% if meterai.get("enabled") %}, with a Rp10,000 stamp duty (meterai) on the
+{{ "client's" if (meterai.get("side") or "client") == "client" else "vendor's" }} side{% endif %}. Each party keeps a signed copy.
+For an electronic signature or e-meterai, upload the PDF itself.
+
+
+DELIVERY ORDER
+--------------
+
+1. Before the session: send the laptop guides and ssh_config.txt{{ " and hosts.txt" if dns.get("mode") == "hosts" }} to the
+   client's staff. They contain no passwords.
+2. Hand over the credentials file ({{ kdbx_name }})
+   via: {{ delivery.get("kdbx_channel") or NP }}.
+3. Give the passphrase on a DIFFERENT channel
+   via: {{ delivery.get("passphrase_channel") or NP }}
+   to:  {{ delivery.get("recipient") or NP }}.
+   Never in the same email, chat or USB stick as the credentials file.
+   The vendor reads it in their own terminal with: handover.py passphrase
+4. The client checks the SHA-256 of the credentials file against Annex 3,
+   opens it, and tests the access (Annex 1).
+5. Both parties sign the Handover Certificate.
+6. Afterwards the client changes every password within {{ (pw_days ~ " days") if pw_days else NP }},
+   and the passphrase of the credentials file.
+
+
+CHECKING THE FILES
+------------------
+
+Linux:    sha256sum -c SHA256SUMS
+macOS:    shasum -a 256 -c SHA256SUMS
+Windows:  Get-FileHash <file> -Algorithm SHA256, then compare with SHA256SUMS

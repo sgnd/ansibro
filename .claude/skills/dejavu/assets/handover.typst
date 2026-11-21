@@ -1,0 +1,148 @@
+// dejavu's page layout for the handover documents: a pandoc template for Typst.
+// It holds no words in any language. Every label comes from the document's front matter.
+// Fonts: only the ones built into Typst, so the PDFs look the same on every machine.
+
+#let horizontalRule = line(length: 100%, stroke: 0.5pt + luma(180))
+#let divider = horizontalRule
+
+$if(highlighting-definitions)$
+$highlighting-definitions$
+$endif$
+
+#let accent = rgb("#1f3a5f")
+#let muted = luma(90)
+#let short-title = [$if(short-title)$$short-title$$else$$title$$endif$]
+#let classification = [$classification$]
+#let docnumber = [$docnumber$]
+
+#set document(title: [$title$])
+#set text(lang: "$lang$", $if(region)$region: "$region$", $endif$size: 10.5pt,
+  font: ($if(mainfont)$"$mainfont$", $endif$"Libertinus Serif", "DejaVu Sans Mono"))
+#set par(justify: false, leading: 0.68em, spacing: 1.1em)
+#set page(
+  paper: "a4",
+  margin: (top: 25mm, bottom: 25mm, x: 20mm),
+  header: context {
+    if counter(page).get().first() > 1 {
+      set text(8.5pt, fill: muted)
+      short-title
+      h(1fr)
+      classification
+      v(-2mm)
+      line(length: 100%, stroke: 0.4pt + luma(200))
+    }
+  },
+  footer: context {
+    set text(8.5pt, fill: muted)
+    docnumber
+    $if(version)$[ · v$version$]$endif$
+    h(1fr)
+    [$labels.page$ #counter(page).display() $labels.of$ #counter(page).final().first()]
+  },
+  $if(draft)$background: rotate(-35deg, text(110pt, weight: "bold", fill: luma(228))[DRAFT]),$endif$
+)
+
+$if(numbered)$
+#set heading(numbering: "1.1")
+$endif$
+#show heading: set text(fill: accent, font: "New Computer Modern")
+#show heading.where(level: 1): it => { v(0.8em); it; v(0.3em) }
+#show heading.where(level: 2): set text(size: 12pt)
+#show heading.where(level: 3): set text(size: 11pt)
+#show raw: set text(font: "DejaVu Sans Mono", size: 8.5pt)
+#show raw.where(block: true): it => block(fill: luma(246), inset: 8pt, radius: 3pt, width: 100%,
+  stroke: 0.4pt + luma(215), it)
+#set table(stroke: 0.4pt + luma(190), inset: 5pt,
+  fill: (_, y) => if y == 0 { luma(230) } else if calc.even(y) { luma(248) })
+#show table: set text(size: 9pt)
+#show table: set par(leading: 0.55em)
+#show table.cell.where(y: 0): set text(weight: "bold")
+#show figure.where(kind: table): set block(breakable: true)
+#show quote.where(block: true): it => block(width: 100%, inset: (left: 10pt, y: 7pt, right: 8pt),
+  fill: rgb("#fdf2f1"), stroke: (left: 2.5pt + rgb("#b42318")), it.body)
+#show link: set text(fill: rgb("#1d4ed8"))
+#set outline(indent: auto)
+#show outline.entry.where(level: 1): set text(weight: "bold")
+
+// The signature block of the BAST. It never breaks across pages.
+#let person(p, meterai) = align(center)[
+  #text(weight: "bold")[#p.role] \
+  #p.company
+  #box(height: 26mm, width: 100%)[
+    #if meterai [
+      #align(left + horizon)[#rect(width: 30mm, height: 20mm, stroke: (dash: "dashed", paint: luma(150)))[
+        #align(center + horizon)[#text(7pt, fill: luma(120))[$meterai-label$]]
+      ]]
+    ]
+  ]
+  #underline[#text(weight: "bold")[#p.name]] \
+  #p.title
+]
+#let signatures() = block(breakable: false, width: 100%)[
+  #v(6mm)
+  #grid(columns: (1fr, 1fr), column-gutter: 14mm,
+$for(signatories)$
+    person((role: [$signatories.role$], company: [$signatories.company$], name: [$signatories.name$], title: [$signatories.title$]), $if(signatories.meterai)$true$else$false$endif$),
+$endfor$
+  )
+$if(mengetahui)$
+  #v(6mm)
+  #align(center)[#text(weight: "bold")[$mengetahui-label$]]
+  #grid(columns: (1fr,) * calc.min($mengetahui-count$, 3), column-gutter: 10mm,
+$for(mengetahui)$
+    person((role: [], company: [$mengetahui.company$], name: [$mengetahui.name$], title: [$mengetahui.title$]), false),
+$endfor$
+  )
+$endif$
+$if(witnesses)$
+  #v(6mm)
+  #align(center)[#text(weight: "bold")[$witnesses-label$]]
+  #grid(columns: (1fr,) * calc.min($witnesses-count$, 3), column-gutter: 10mm,
+$for(witnesses)$
+    person((role: [], company: [$witnesses.company$], name: [$witnesses.name$], title: [$witnesses.title$]), false),
+$endfor$
+  )
+$endif$
+]
+
+$if(cover)$
+// The cover page of the technical documents and the laptop guides.
+#page(header: none, footer: none)[
+  $if(cover.logo)$#image("$cover.logo$", height: 16mm)$endif$
+  #v(35mm)
+  #text(10pt, fill: muted, tracking: 0.08em)[$cover.kicker$]
+  #v(3mm)
+  #text(26pt, weight: "bold", fill: accent, font: "New Computer Modern")[$title$]
+  $if(subtitle)$
+  #v(2mm)
+  #text(14pt, fill: muted)[$subtitle$]
+  $endif$
+  #v(18mm)
+  #grid(columns: (42mm, 1fr), row-gutter: 3.2mm, column-gutter: 4mm,
+$for(cover.rows)$
+    text(fill: muted)[$cover.rows.label$], [$cover.rows.value$],
+$endfor$
+  )
+  #v(1fr)
+  #line(length: 100%, stroke: 0.6pt + accent)
+  #text(9pt, fill: muted)[$cover.footer$]
+]
+$endif$
+
+$if(kop)$
+// The letterhead of the BAST.
+#grid(columns: ($if(kop.logo)$24mm, $endif$1fr), column-gutter: 5mm, align: horizon,
+  $if(kop.logo)$image("$kop.logo$", width: 22mm),$endif$
+  [#text(14pt, weight: "bold", fill: accent)[$kop.name$] \ #text(9pt, fill: muted)[$kop.address$]],
+)
+#v(-1mm)
+#line(length: 100%, stroke: 1.4pt + accent)
+#v(4mm)
+$endif$
+
+$if(toc)$
+#outline(title: [$labels.toc$], depth: 2)
+#pagebreak()
+$endif$
+
+$body$

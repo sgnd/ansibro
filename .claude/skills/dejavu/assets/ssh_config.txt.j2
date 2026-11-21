@@ -1,0 +1,35 @@
+# SSH settings for {{ a.client.name or f.domain }} ({{ f.domain }}), made by dejavu {{ dejavu }}.
+# Add these lines to ~/.ssh/config (Windows: %USERPROFILE%\.ssh\config).
+# The key file is your own key (or the one from the credentials file), never the vendor's.
+{% for n in reach %}
+
+Host {{ n.alias }}
+  HostName {{ n.address }}
+  User {{ f.ssh.user }}
+  Port {{ f.ssh.port }}
+  IdentityFile ~/.ssh/{{ slug }}_ed25519
+  IdentitiesOnly yes
+{% if n.jump %}
+  ProxyJump {{ n.jump }}
+{% endif %}
+{% endfor %}
+{% if f.tunnels %}
+
+# A private pipe to the databases and other services: run "ssh -N {{ slug }}-tunnel" and keep it open.
+# Then connect to 127.0.0.1 and the local port below.
+{% set j = reach | selectattr("direct") | first | default(reach[0]) %}
+Host {{ slug }}-tunnel
+  HostName {{ j.address }}
+  User {{ f.ssh.user }}
+  Port {{ f.ssh.port }}
+  IdentityFile ~/.ssh/{{ slug }}_ed25519
+  IdentitiesOnly yes
+  ExitOnForwardFailure yes
+{% if j.jump %}
+  ProxyJump {{ j.jump }}
+{% endif %}
+{% for t in f.tunnels %}
+  # {{ t.use }} on {{ t.node }}
+  LocalForward {{ t.local }} {{ t.ip }}:{{ t.port }}
+{% endfor %}
+{% endif %}

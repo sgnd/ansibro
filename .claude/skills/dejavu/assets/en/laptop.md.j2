@@ -1,0 +1,708 @@
+{## The "Access from your laptop" body: chapter 5 of the technical documentation, and the
+    standalone laptop guide (one OS). Headings start at ##. Every section that depends on the
+    system is wrapped in an if. The Indonesian twin (id/laptop.md.j2) has the same structure. ##}
+{% set oses_shown = [only_os] if only_os else oses %}
+{% set NP = "Not provided" %}
+{% set dns = a.get("dns") or {} %}
+{% set delivery = a.get("delivery") or {} %}
+{% set support = a.get("support") or {} %}
+{% set client_ca = (a.get("tls") or {}).get("client_ca") %}
+{% set state_owner = a.get("state_owner") or "vendor" %}
+{% set ssh_handover = a.get("ssh_handover") or "client_key" %}
+{% set pw_days = a.get("password_change_days") %}
+{% set extra_apps = a.get("extra_apps") or [] %}
+{% set osname = {"windows": "Windows", "macos": "macOS", "linux": "Linux"} %}
+{% set win = "windows" in oses_shown %}
+{% set unix_os = oses_shown | reject("equalto", "windows") | list %}
+{% set unix_label = unix_os | join(" and ") | replace("macos", "macOS") | replace("linux", "Linux") %}
+{% set kdbx_name = slug ~ ("-kredensial.kdbx" if first_lang == "id" else "-credentials.kdbx") %}
+{% set first = reach | selectattr("first") | first %}
+{% set mgr = first.alias %}
+{% set traefik_nodes = reach | selectattr("traefik") | list %}
+{% set tunnel_host = reach | selectattr("direct") | first | default(reach[0]) %}
+{% set personas = people | map(attribute="persona") | select | list %}
+{% set show_successor = state_owner == "client" or "successor" in personas %}
+{% set has_web = has("traefik") and web %}
+{% set layer = {"authelia": "Authelia", "keycloak": "Keycloak SSO"}.get(f.admin_sso, "Traefik") %}
+{% set layer_secret = {"authelia": "authelia_admin", "keycloak": "keycloak_sso_admin"}.get(f.admin_sso, "traefik_admin") %}
+{% set doc_ref = "the technical documentation" if only_os else "this document" %}
+{% macro entry(name) %}{% set s = f.secrets | selectattr("name", "equalto", name) | selectattr("status", "equalto", "present") | list %}{% if s %}{{ groups[s[0].group][first_lang] }}/{{ s[0].title }}{% else %}{{ NP }}{% endif %}{% endmacro %}
+{% macro app_entries(app_name) %}{% set s = f.secrets | selectattr("app", "equalto", app_name) | selectattr("group", "equalto", "web") | selectattr("status", "equalto", "present") | list %}{% if s %}{% for x in s %}{{ groups[x.group][first_lang] }}/{{ x.title }}{{ "; " if not loop.last }}{% endfor %}{% else %}None{% endif %}{% endmacro %}
+{% macro cmds(unix, ps) %}
+{% if unix_os and unix %}
+{{ unix_label }} (Terminal):
+
+```sh
+{{ unix }}
+```
+
+{% endif %}
+{% if win and ps %}
+Windows (PowerShell):
+
+```powershell
+{{ ps }}
+```
+
+{% endif %}
+{% endmacro %}
+{% macro per_os(w, m, l) %}
+{% for o in oses_shown %}
+{% set c = {"windows": w, "macos": m, "linux": l}[o] %}
+{% if c %}
+{{ osname[o] }} ({{ "PowerShell" if o == "windows" else "Terminal" }}):
+
+```{{ "powershell" if o == "windows" else "sh" }}
+{{ c }}
+```
+
+{% endif %}
+{% endfor %}
+{% endmacro %}
+{% macro tunnel_port(app_name) %}{% set t = f.tunnels | selectattr("app", "equalto", app_name) | list %}{{ t[0].local if t else NP }}{% endmacro %}
+## Who needs what {#access-who}
+
+This part explains how to reach the system from your own computer, step by step. It is written for {{ oses_shown | join(", ") | replace("windows", "Windows") | replace("macos", "macOS") | replace("linux", "Linux") }}.{% if win %} On Windows you type the commands in **PowerShell** (Start menu, type "PowerShell").{% endif %}{% if unix_os %} On {{ unix_label }} you type the commands in the **Terminal** app.{% endif %} Each step says what you want to do, what to type, what you should see, and what to do if it fails.
+
+Commands marked *(not tested)* have not been tried on a real laptop yet. If one of them fails, tell the vendor.
+
+Not everyone needs every part. Find your role in this table:
+
+|                          | Viewer (web pages only)       | Operator (also servers)         | Successor (runs the installer)   |
+|:-------------------------|:------------------------------|:--------------------------------|:---------------------------------|
+| Tools                    | A browser, KeePassXC{{ ", an authenticator app" if f.admin_sso }} | The same, plus the SSH program{{ ", kubectl" if f.orchestrator == "k3s" }}; optional database tools | The same, plus git, Python 3.12 or newer, age; macOS or Linux only |
+| Web pages                | Yes                           | Yes                             | Yes                              |
+| SSH and tunnels          | No                            | Yes                             | Yes                              |
+| Runs the installer       | No                            | No                              | Yes                              |
+
+{% if people %}
+The people named for this handover:
+
+| Name                      | Role          | Laptop       | Internet address                  |
+|:--------------------------|:--------------|:-------------|:----------------------------------|
+{% for p in people %}
+| {{ p.name | md if p.name else NP }} | {{ p.persona | capitalize if p.persona else NP }} | {{ osname.get(p.os, NP) if p.os else NP }} | {{ (p.allow_from | join(", ") | md) if p.allow_from else NP }} |
+{% endfor %}
+
+{% endif %}
+Before your first visit, the vendor does two things for you:
+
+1. Adds your internet address to the allow-lists, if the lists are in use (see [Your internet address](#access-ip)).
+2. Adds your SSH key to every server, if you are an operator (see [SSH](#access-ssh)).
+
+{% if blocked %}
+> **Important:** these addresses are outside the allow-lists, so these people are blocked until the vendor adds their address and runs the installer again: {% for b in blocked %}{{ b.name | md if b.name else NP }} ({{ b.ip | md }}){{ ", " if not loop.last else "." }}{% endfor %}{{ "" }}
+
+
+{% endif %}
+## Open the credentials file {#access-kdbx}
+
+All passwords are in one encrypted file, **{{ kdbx_name }}**. It opens with KeePassXC, a free password manager. The passphrase that opens it (7 words) is given to you separately{{ (", by " ~ (delivery.passphrase_channel | md)) if delivery.get("passphrase_channel") }}{{ (", to " ~ (delivery.recipient | md)) if delivery.get("recipient") }}. It is never in the same message or on the same USB stick as the file.
+
+### Install KeePassXC {#access-kdbx-install}
+
+Goal: have KeePassXC on your computer.
+
+{{ per_os("winget install KeePassXCTeam.KeePassXC", "brew install --cask keepassxc", "sudo apt install keepassxc") }}
+{% if win %}
+On Windows you can also download the installer (MSI) from <https://keepassxc.org/download>. The winget package name is *(not tested)*.
+{% endif %}
+{% if "macos" in oses_shown %}
+On macOS you can also download the DMG from <https://keepassxc.org/download>. On the first start, if macOS refuses to open it, right-click the app and choose Open.
+{% endif %}
+{% if "linux" in oses_shown %}
+On Linux, other choices are `sudo dnf install keepassxc` (Fedora) or `flatpak install flathub org.keepassxc.KeePassXC`. On Debian 13 and Ubuntu 26.04 the package may be called `keepassxc-full`.
+{% endif %}
+
+On a phone, KeePassDX (Android), KeePassium or Strongbox (iPhone) can open the file to look things up.
+
+**What you should see:** KeePassXC in your list of apps.
+
+**If it fails:** on a company laptop you may not be allowed to install apps. Ask your IT team, or ask the vendor to install it during the handover session.
+
+### Check the file {#access-kdbx-hash}
+
+Goal: make sure the file you received is exactly the one listed in the Handover Certificate. Open {{ "PowerShell or Terminal" if (win and unix_os) else ("PowerShell" if win else "Terminal") }} in the folder that holds the file, then type:
+
+{{ per_os("Get-FileHash .\\" ~ kdbx_name ~ " -Algorithm SHA256", "shasum -a 256 " ~ kdbx_name, "sha256sum " ~ kdbx_name) }}
+**What you should see:** a long code of 64 letters and digits. It must be the same as the SHA-256 of {{ kdbx_name }} in Annex 3 of the Handover Certificate.
+
+**If it fails:** if the code is different, do not use the file. Ask the vendor for a new copy.
+
+### Open it and copy a password {#access-kdbx-open}
+
+Goal: read a password without typing it by hand.
+
+1. Open KeePassXC, choose Open Database, and pick {{ kdbx_name }}.
+2. Type the 7 words of the passphrase, with a space between the words.
+3. Pick a group on the left (for example "{{ groups.web[first_lang] }}"), then click an entry.
+4. Copy the password with Ctrl+C (Cmd+C on a Mac) and paste it into the login page. KeePassXC clears the clipboard after a few seconds.
+5. Files inside an entry (attachments) are under the entry's Attachments: right-click one to save it.
+
+Keep a backup copy of the file on a USB stick in a safe place. After the handover, change the passphrase (Database, then Database Security) and change the passwords{{ (" within " ~ pw_days ~ " days") if pw_days }}, as {{ doc_ref }} explains.
+
+**What you should see:** the groups and entries of the file.
+
+**If it fails:** "Invalid credentials" means a word is wrong. Check the spelling and the spaces, and try again.
+
+## Your internet address {#access-ip}
+
+Goal: know the internet address (IP address) of your connection, because some pages and the servers only accept known addresses.
+
+{{ cmds("curl -4 https://ifconfig.me", "curl.exe -4 https://ifconfig.me") }}
+You can also open <https://ifconfig.me> in a browser. It is a service run by a third party.
+
+**What you should see:** four numbers with dots, for example 198.51.100.7.
+
+The system has two lists of allowed addresses (allow-lists):
+
+| List                 | What it protects                       | Addresses allowed now                         |
+|:---------------------|:---------------------------------------|:----------------------------------------------|
+| `ssh.allow_from`     | SSH, the login to the servers (port {{ f.ssh.port }}) | {{ f.ssh.allow_from | cidrs if f.ssh.allow_from else "Empty: open to anyone" }} |
+| `admin_allow_from`   | The admin web pages                    | {{ f.admin_allow_from | cidrs if f.admin_allow_from else "Empty: open to anyone" }} |
+
+{% if not f.ssh.allow_from or not f.admin_allow_from %}
+An empty list means the system is **open to anyone** on the internet{{ " for that list" if (f.ssh.allow_from or f.admin_allow_from) }}: the passwords are the only protection.
+{% endif %}
+{% if f.ssh.allow_from or f.admin_allow_from %}
+When a list is set, an address that is not on it gets "403 Forbidden" on the admin pages, or no answer (a timeout) on SSH. This also happens when your home address changes, behind a company proxy, or on a connection with only an IPv6 address.
+{% endif %}
+{% if dns.get("proxied") %}
+A content delivery network (CDN) sits in front of the web pages, so the system sees the CDN's address instead of yours. The admin allow-list does not work as expected in that case.
+{% endif %}
+
+**If it fails:** only the operator can add an address: they add it to the list in the installer's settings (config.yml) and run the installer again. Send your address to the vendor or your operator.
+
+{% if has_web %}
+## Web pages {#access-web}
+
+### Check the name {#access-web-dns}
+
+Goal: make sure your computer finds the system's web pages under {{ f.domain }}.
+
+{% set probe = (web | first).host ~ "." ~ f.domain %}
+{{ cmds("ping -c 1 " ~ probe, "ping -n 1 " ~ probe) }}
+**What you should see:** the address {{ traefik_nodes | map(attribute="address") | join(" or ") }}{{ (" (public: " ~ (traefik_nodes | map(attribute="public_ip") | select | join(", ")) ~ ")") if traefik_nodes | map(attribute="public_ip") | select | list }}. That is the server that answers the web pages. A reply is not needed: some networks block ping, but the address must be right.
+
+{% if dns.get("mode") == "internal" %}
+The names come from your company's own DNS (the internet's phone book), with one record for every name under {{ f.domain }}.
+{% elif dns.get("mode") == "hosts" %}
+There is no DNS for {{ f.domain }}, so you add the names to your computer's hosts file (next step).
+{% else %}
+The names come from the public DNS (the internet's phone book), with one record for every name under {{ f.domain }}.
+{% endif %}
+
+**If it fails:** "could not find host" means the name is not known. {{ "Add the hosts lines below." if dns.get("mode") == "hosts" else "Ask the vendor to check the DNS record." }}
+
+{% if dns.get("mode") == "hosts" %}
+### Add the names to the hosts file {#access-web-hosts}
+
+Goal: tell your computer the address of each web page, because there is no DNS. These are the lines from the file hosts.txt:
+
+{% set t = traefik_nodes | first %}
+```text
+{% for w in web %}
+{{ t.public_ip or t.address }}  {{ w.host }}.{{ f.domain }}
+{% endfor %}
+```
+
+A hosts file cannot use wildcards, so every page has its own line, and each name has one address only: when that server is down, the pages are down for you. A record in your company DNS is the better solution; ask your IT team.
+
+{% if win %}
+Windows (PowerShell): open Notepad as administrator, paste the lines at the end, save, then clear the name cache. Company laptops often block this.
+
+```powershell
+Start-Process notepad "$env:SystemRoot\System32\drivers\etc\hosts" -Verb RunAs
+ipconfig /flushdns
+```
+
+{% endif %}
+{% if "macos" in oses_shown %}
+macOS (Terminal): open the file, paste the lines at the end, save with Ctrl+O and Enter, close with Ctrl+X, then clear the name cache.
+
+```sh
+sudo nano /etc/hosts
+sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder
+```
+
+{% endif %}
+{% if "linux" in oses_shown %}
+Linux (Terminal): open the file, paste the lines at the end, save with Ctrl+O and Enter, close with Ctrl+X, then clear the name cache (on systems with systemd-resolved).
+
+```sh
+sudo nano /etc/hosts
+resolvectl flush-caches
+```
+
+{% endif %}
+**What you should see:** the ping in the step above now shows the right address.
+
+**If it fails:** a browser with "secure DNS" turned on may skip the hosts file *(not tested)*. Turn that setting off in the browser, or ask your IT team.
+
+{% endif %}
+### Certificates {#access-web-tls}
+
+{% if f.ca_file or client_ca %}
+Goal: let your computer trust the system's certificates (the proof that a page is really the system's). They come from a private certificate authority, so your computer must trust the file **{{ slug }}-ca.crt** from the handover pack. All the commands here are *(not tested)*.
+
+{% if win %}
+Windows: double-click {{ slug }}-ca.crt, choose Install Certificate, then put it in "Trusted Root Certification Authorities". Or in PowerShell:
+
+```powershell
+certutil -user -addstore Root {{ slug }}-ca.crt
+```
+
+Firefox on Windows uses this only when the setting `security.enterprise_roots.enabled` is on (type `about:config` in the address bar).
+
+{% endif %}
+{% if "macos" in oses_shown %}
+macOS (Terminal):
+
+```sh
+security add-trusted-cert -r trustRoot \
+  -k ~/Library/Keychains/login.keychain-db {{ slug }}-ca.crt
+```
+
+{% endif %}
+{% if "linux" in oses_shown %}
+Linux (Terminal), on Debian or Ubuntu:
+
+```sh
+sudo cp {{ slug }}-ca.crt /usr/local/share/ca-certificates/{{ slug }}.crt
+sudo update-ca-certificates
+```
+
+On Fedora:
+
+```sh
+sudo cp {{ slug }}-ca.crt /etc/pki/ca-trust/source/anchors/
+sudo update-ca-trust
+```
+
+Chrome and Firefox on Linux keep their own list (package libnss3-tools):
+
+```sh
+certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n {{ slug }} -i {{ slug }}-ca.crt
+```
+
+{% endif %}
+**What you should see:** after a browser restart, the pages open without a warning.
+
+**If it fails:** close every browser window and open it again. If the warning stays, ask the vendor.
+
+{% elif f.tls == "selfsigned" %}
+The system has no certificate that your computer can trust (the "selfsigned" setting). The browser warns on every page, and again each time the gateway restarts. This is expected. To continue anyway:
+
+- Chrome and Edge: click Advanced, then Proceed.
+- Firefox: click Advanced, then Accept the Risk and Continue.
+- Safari: click Show Details, then visit this website.
+
+{% if f.admin_sso == "keycloak" %}
+With the Keycloak login, expect a warning on each of oauth.{{ f.domain }}, keycloak.{{ f.domain }} and the page itself.
+{% endif %}
+The warning is safe to pass only for the addresses in the table below. Recommended: a real certificate (the "custom" setting, or a private ACME server); see the known issues in {{ doc_ref }}.
+
+{% elif f.tls == "custom" %}
+The system uses its own certificate{{ (", valid until " ~ f.tls_cert.not_after) if f.tls_cert }}. When it comes from a public authority there is nothing to do. When it comes from your company's own authority, your IT team installs that authority on the laptops.
+
+{% else %}
+The certificates come from Let's Encrypt, a public authority. Your browser trusts them already: there is nothing to do.
+
+{% endif %}
+### The pages {#access-web-pages}
+
+Goal: know which pages exist, who can open them, and which entry of the credentials file holds the login.
+
+| Address                                  | App              | Who can open it           | Login                       | Entry in the credentials file        |
+|:-----------------------------------------|:-----------------|:--------------------------|:----------------------------|:-------------------------------------|
+{% for ap in f.apps %}
+{% for w in ap.web %}
+| <{{ w.url }}> | {{ ap.name }} | {{ "Anyone" if w.guard == "public" else ("Anyone (the allow-list is empty)" if not f.admin_allow_from else "Allowed addresses only") }} | {{ {"own": "The app's own login", "layer": "Admin login (" ~ layer ~ ")", "none": "None"}[w.login] }} | {{ entry(layer_secret) if w.login == "layer" else (app_entries(ap.name) if w.login == "own" else "None") }} |
+{% endfor %}
+{% endfor %}
+{% for x in extra_apps %}
+| {{ ("<" ~ x.url ~ ">") if x.url else NP }} | {{ x.name | md if x.name else NP }} | {{ NP }} | {{ NP }} | {{ NP }} |
+{% endfor %}
+
+**What you should see:** the login page of the app, or the admin login first ({{ layer }}).
+
+**If it fails:** "403 Forbidden" means your internet address is not on the admin allow-list (see [Your internet address](#access-ip)). A page that never loads usually means a name problem (see [Check the name](#access-web-dns)).
+
+{% if f.admin_sso %}
+### First login and 2FA {#access-web-2fa}
+
+Goal: set up the second factor (2FA): a 6-digit code from an app on your phone, asked after the password. Do this during the handover session, with the vendor.
+
+1. Install an authenticator app on your phone: Aegis, Google Authenticator or Microsoft Authenticator.
+{% if f.admin_sso == "authelia" %}
+2. Log in at <https://authelia.{{ f.domain }}/> with the user and password from "{{ entry("authelia_admin") }}".
+3. Choose to register a device. Authelia has no mail server: the operator reads the registration code on the first server:
+
+```sh
+ssh -t {{ mgr }} sudo cat /opt/ansibro/authelia/config/notification.txt
+```
+
+4. Scan the QR code with the authenticator app, and type the 6-digit code.
+{% else %}
+2. Open an admin page. The Keycloak login asks for the user admin and the password from "{{ entry("keycloak_sso_admin") }}".
+3. At the first login Keycloak shows a QR code. Scan it with the authenticator app and type the 6-digit code.
+4. If the vendor already set up their own phone for this user, ask them to reset it first.
+{% endif %}
+
+**What you should see:** the admin page opens after the code.
+
+**If it fails:** check that your phone's clock is right; the codes depend on the time.
+
+{% endif %}
+{% endif %}
+## SSH: the login to the servers {#access-ssh}
+
+This part is for operators. SSH (Secure Shell) is the safe way to type commands on a server. You log in with a key: a pair of files, one private (it stays on your laptop) and one public (it goes to the servers). The vendor's own key is never handed over.
+
+### Check the SSH program {#access-ssh-client}
+
+Goal: make sure your computer has the OpenSSH program.
+
+{{ per_os("ssh -V", "ssh -V", "ssh -V") }}
+**What you should see:** a version, for example "OpenSSH_9.6".
+
+**If it fails:** {% if win %}on Windows, install it from PowerShell opened as administrator: `Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0`. {% endif %}{% if "linux" in oses_shown %}On Linux, install it with `sudo apt install openssh-client`. {% endif %}{% if "macos" in oses_shown %}macOS always has it. {% endif %}Use OpenSSH, not PuTTY: PuTTY needs its own key format.
+
+{% if ssh_handover == "generated" %}
+### Save your key {#access-ssh-key}
+
+Goal: put the key that the vendor made for you in the right place. It is the attachment {{ slug }}_ed25519 of the entry "{{ groups.infra[first_lang] }}/SSH key (client)" in the credentials file. Save it under this name:
+
+{{ cmds("mkdir -p ~/.ssh\n# save the attachment as ~/.ssh/" ~ slug ~ "_ed25519, then:\nchmod 600 ~/.ssh/" ~ slug ~ "_ed25519", "New-Item -ItemType Directory -Force \"$env:USERPROFILE\\.ssh\"\n# save the attachment as $env:USERPROFILE\\.ssh\\" ~ slug ~ "_ed25519") }}
+**What you should see:** the file {{ slug }}_ed25519 in your .ssh folder.
+
+**If it fails:** if the attachment is missing, ask the vendor.
+
+{% else %}
+### Make your own key {#access-ssh-key}
+
+Goal: make your key pair, then send only the public part (the file ending in .pub) to the vendor.
+
+{{ cmds("mkdir -p ~/.ssh\nssh-keygen -t ed25519 -f ~/.ssh/" ~ slug ~ "_ed25519 -C \"your name\"", "New-Item -ItemType Directory -Force \"$env:USERPROFILE\\.ssh\"\nssh-keygen -t ed25519 -f $env:USERPROFILE\\.ssh\\" ~ slug ~ "_ed25519 -C \"your name\"") }}
+Choose a passphrase for the key when asked; it protects the key if your laptop is lost.
+
+**What you should see:** two new files: {{ slug }}_ed25519 (private: never send it) and {{ slug }}_ed25519.pub (public: send this one to the vendor).
+
+**If it fails:** "No such file or directory" means the .ssh folder is missing: run the first line again.
+
+### The vendor adds your key {#access-ssh-add}
+
+Goal: the vendor puts your public key on every server. ansibro does not do this, so the operator does it by hand, once per server, with their own access:
+
+```sh
+cat {{ slug }}_ed25519.pub | ssh -p {{ f.ssh.port }} {{ f.ssh.user }}@<server> \
+  "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys \
+  && chmod 600 ~/.ssh/authorized_keys"
+```
+
+`<server>` is each address in the next table. This is a row of the acceptance checklist (Annex 1 of the Handover Certificate).
+
+{% endif %}
+### Add the SSH settings {#access-ssh-config}
+
+Goal: give each server a short name, so `ssh {{ mgr }}` is all you type. The file **ssh_config.txt** from the handover pack has the settings; add it to the end of your SSH settings file:
+
+{{ cmds("cat ssh_config.txt >> ~/.ssh/config", "Get-Content .\\ssh_config.txt |\n  Add-Content -Encoding ascii \"$env:USERPROFILE\\.ssh\\config\"") }}
+It gives these names:
+
+| Name                        | Server          | Address           | Goes through                  |
+|:----------------------------|:----------------|:------------------|:------------------------------|
+{% for n in reach %}
+| `{{ n.alias }}` | {{ n.name }} | {{ n.address }} | {{ ("`" ~ n.jump ~ "`") if n.jump and n.jump != n.alias else "Direct" }} |
+{% endfor %}
+
+Every name logs in as {{ f.ssh.user }} on port {{ f.ssh.port }}, with the key ~/.ssh/{{ slug }}_ed25519.
+{% if reach | selectattr("jump") | list %}
+A server without a public address is reached through another server ("goes through"){{ "; because ssh.allow_from is set, that server's address must also be on the list" if f.ssh.allow_from }}.
+{% endif %}
+{% if "macos" in oses_shown %}
+On macOS you can add two lines under each `Host` line so the key passphrase is kept in the Keychain: `UseKeychain yes` and `AddKeysToAgent yes`.
+{% endif %}
+
+**What you should see:** the `Host` lines at the end of the file.
+
+**If it fails:** if you already had a `Host` with the same name, remove the old one.
+
+### First connection {#access-ssh-first}
+
+Goal: log in to the first server once and check that it is the real one.
+
+{{ cmds("ssh " ~ mgr, "ssh " ~ mgr) }}
+{% set fps = (check.get("servers") if check else None) or {} %}
+The first time, SSH shows the server's fingerprint (a code starting with SHA256:) and asks to continue. Compare it with this table, then type `yes`. If they differ, type `no` and call the vendor.
+
+| Server          | Host-key fingerprint                                                          |
+|:----------------|:------------------------------------------------------------------------------|
+{% for n in reach %}
+{% set fp = (fps.get(n.name) or {}).get("fingerprint") %}
+| {{ n.name }} | {{ ("`" ~ fp ~ "`") if fp else "Not checked" }} |
+{% endfor %}
+
+{% set fpn = namespace(any=false) %}
+{% for k in fps %}{% if (fps[k] or {}).get("fingerprint") %}{% set fpn.any = true %}{% endif %}{% endfor %}
+{% if not fpn.any %}
+The fingerprints were not checked by the acceptance test. Ask the vendor to read them out from each server with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`.
+
+{% endif %}
+
+**What you should see:** a prompt like `{{ f.ssh.user }}@{{ first.name }}:~$`. Type `exit` to leave. Commands for the system need `sudo` in front, because its files under /opt/ansibro belong to the administrator (root).
+
+**If it fails:**
+
+- "Permission denied (publickey)": your key is not on that server yet, or the key file name is wrong.
+- "Connection timed out": your address is not in ssh.allow_from, or the provider's firewall blocks port {{ f.ssh.port }}.
+- "UNPROTECTED PRIVATE KEY FILE": the key file is readable by others. Fix it:
+
+{{ cmds("chmod 600 ~/.ssh/" ~ slug ~ "_ed25519", "icacls $env:USERPROFILE\\.ssh\\" ~ slug ~ "_ed25519 /inheritance:r `\n  /grant:r \"$($env:USERNAME):(R)\"") }}
+### Remember the key passphrase {#access-ssh-agent}
+
+Goal: type the key's passphrase once per session instead of at every login.
+
+{{ per_os("Get-Service ssh-agent | Set-Service -StartupType Automatic\nStart-Service ssh-agent\nssh-add $env:USERPROFILE\\.ssh\\" ~ slug ~ "_ed25519", "ssh-add --apple-use-keychain ~/.ssh/" ~ slug ~ "_ed25519", "ssh-add ~/.ssh/" ~ slug ~ "_ed25519") }}
+{% if win %}
+On Windows, the first two lines need PowerShell opened as administrator.
+{% endif %}
+
+**What you should see:** "Identity added".
+
+**If it fails:** "Could not open a connection to your authentication agent" means the agent is not running{{ ": run the Windows lines as administrator" if win }}.
+
+{% if f.tunnels %}
+## Databases and other services: an SSH tunnel {#access-tunnel}
+
+The databases and similar services listen only inside the cluster, and their traffic is not encrypted. To reach them, you open an SSH tunnel: a private pipe through SSH from your laptop to the server. The tunnel also encrypts the traffic.
+
+### Start the tunnel {#access-tunnel-start}
+
+Goal: open all the pipes at once with the name `{{ slug }}-tunnel` from ssh_config.txt.
+
+{{ cmds("ssh -N " ~ slug ~ "-tunnel", "ssh -N " ~ slug ~ "-tunnel") }}
+Keep this window open while you work; close it (Ctrl+C) when you are done. Then connect your tools to 127.0.0.1 (your own laptop) and the port in this table:
+
+| Service              | Server        | On the server            | On your laptop          |
+|:---------------------|:--------------|:-------------------------|:------------------------|
+{% for t in f.tunnels %}
+| {{ t.use }} | {{ t.node }} | {{ t.ip }}:{{ t.port }} | 127.0.0.1:{{ t.local }} |
+{% endfor %}
+
+**What you should see:** nothing: no prompt, and the window stays open. That means the tunnel works.
+
+**If it fails:** "Address already in use" or "port forwarding failed" means another program on your laptop uses that port. Close it, or change the first number of that `LocalForward` line in your SSH settings.
+{% if f.wireguard %}
+The servers talk to each other over WireGuard (an encrypted network between the servers only; your laptop cannot join it). SSH goes to the public address, and the tunnel reaches the WireGuard address; the settings already do this.
+{% endif %}
+
+### Connect your tools {#access-tunnel-tools}
+
+Goal: use the database or service through the tunnel. The passwords are in the group "{{ groups.data[first_lang] }}"{{ (" and \"" ~ groups.storage[first_lang] ~ "\"") if (has("garage") or has("rustfs")) }} of the credentials file.
+
+{% if has("postgres") %}
+{% set pg = f.tunnels | selectattr("app", "equalto", "postgres") | list %}
+{% if pg | length > 1 %}
+{% set pg_cmd %}
+psql "host={% for t in pg %}127.0.0.1{{ "," if not loop.last }}{% endfor %}{{ "" }}
+      port={% for t in pg %}{{ t.local }}{{ "," if not loop.last }}{% endfor %}{{ "" }} user=postgres
+      target_session_attrs=read-write"
+{% endset %}
+{% else %}
+{% set pg_cmd = 'psql "host=127.0.0.1 port=' ~ pg[0].local ~ ' user=postgres"' %}
+{% endif %}
+PostgreSQL{{ " *(not tested)*" if pg | length > 1 }}:
+
+{{ cmds(pg_cmd | trim, pg_cmd | trim) }}
+{% if pg | length > 1 %}
+The main server (primary) can move between {{ pg | map(attribute="node") | join(", ") }}; this line tries each port and keeps the one that accepts changes.
+
+{% endif %}
+{% endif %}
+{% if has("mariadb") %}
+MariaDB:
+
+{{ cmds("mariadb -h 127.0.0.1 -P " ~ tunnel_port("mariadb") ~ " -u root -p", "mariadb -h 127.0.0.1 -P " ~ tunnel_port("mariadb") ~ " -u root -p") }}
+{% endif %}
+{% for c in ["redis", "valkey"] if has(c) %}
+{% set rs = f.tunnels | selectattr("app", "equalto", c) | list %}
+{{ "Redis" if c == "redis" else "Valkey" }} *(not tested)*:
+
+{{ cmds("redis-cli -h 127.0.0.1 -p " ~ rs[0].local ~ " --askpass", "redis-cli -h 127.0.0.1 -p " ~ rs[0].local ~ " --askpass") }}
+{% if rs | length > 1 %}
+With {{ rs | length }} servers, only the primary accepts changes, and it can move. Find it first; the answer is a server address from the table above, so use the laptop port of that line:
+
+{{ cmds("ssh " ~ slug ~ "-" ~ rs[0].node ~ " \"sudo docker exec " ~ c ~ "-sentinel " ~ c ~ "-cli -p 26379 \\\n  sentinel get-master-addr-by-name ansibro\"", "ssh " ~ slug ~ "-" ~ rs[0].node ~ " (\"sudo docker exec " ~ c ~ "-sentinel " ~ c ~ "-cli -p 26379 \" +\n  \"sentinel get-master-addr-by-name ansibro\")") }}
+{% endif %}
+{% endfor %}
+{% if has("garage") %}
+Garage (S3 file storage). The access key starts with GK; the region is garage. Give the keys from "{{ groups.storage[first_lang] }}/Garage S3" to `aws configure` first:
+
+{% set c = "aws --endpoint-url http://127.0.0.1:" ~ tunnel_port("garage") ~ " --region garage s3 ls" %}
+{{ cmds(c, c) }}
+{% endif %}
+{% if has("rustfs") %}
+RustFS (S3 file storage): the easy way is its web console at <https://rustfs.{{ f.domain }}/rustfs/console/>. From the command line *(not tested)*:
+
+{% set c = "aws --endpoint-url http://127.0.0.1:" ~ tunnel_port("rustfs") ~ " s3 ls" %}
+{{ cmds(c, c) }}
+{% endif %}
+{% if has("rabbitmq") %}
+RabbitMQ: your programs connect with AMQP to 127.0.0.1:{{ tunnel_port("rabbitmq") }}, user admin. The web page is <https://rabbitmq.{{ f.domain }}/>.
+
+{% endif %}
+{% if has("nats") %}
+NATS: your programs connect to nats://127.0.0.1:{{ tunnel_port("nats") }}, user admin *(not tested)*.
+
+{% endif %}
+{% if has("openbao") %}
+OpenBao (the secrets store): the easy way is its web page <https://openbao.{{ f.domain }}/ui/>, with the token from "{{ entry("openbao_root_token") }}". From the command line *(not tested)*:
+
+{{ cmds("export BAO_ADDR=http://127.0.0.1:" ~ tunnel_port("openbao") ~ "\nbao login", "$env:BAO_ADDR = \"http://127.0.0.1:" ~ tunnel_port("openbao") ~ "\"\nbao login") }}
+{% endif %}
+Programs with a window (DBeaver, TablePlus, RedisInsight, WinSCP, Cyberduck) work the same way: start the tunnel, then connect to host 127.0.0.1 and the laptop port. They can also make the tunnel themselves: in their SSH settings, use host {{ tunnel_host.address }}, port {{ f.ssh.port }}, user {{ f.ssh.user }} and your key file; then connect to the address "on the server" from the table.
+
+**What you should see:** the tool connects and asks for the password, or shows the data.
+
+**If it fails:** "connection refused" means the tunnel is not running. Start it again in its own window.
+
+{% endif %}
+## Managing the cluster {#access-cluster}
+
+{% if f.orchestrator == "swarm" %}
+### Docker Swarm {#access-cluster-swarm}
+
+Goal: see and manage the running apps (services).
+
+{% if has("portainer") or has("swarmpit") %}
+The easy way is the browser: {% if has("portainer") %}Portainer at <https://portainer.{{ f.domain }}/>{% endif %}{% if has("portainer") and has("swarmpit") %} or {% endif %}{% if has("swarmpit") %}Swarmpit at <https://swarmpit.{{ f.domain }}/>{% endif %}.
+
+{% endif %}
+From the command line, on the first server:
+
+{{ cmds("ssh -t " ~ mgr ~ " sudo docker service ls", "ssh -t " ~ mgr ~ " sudo docker service ls") }}
+**What you should see:** a list of services, each with "REPLICAS" like 1/1.
+
+**If it fails:** see [SSH](#access-ssh). A remote Docker connection (`docker context create {{ slug }} --docker host=ssh://{{ mgr }}`) only works if the SSH user may use Docker without sudo. ansibro does not set this up, and it gives full control of the server, so the vendor decides.
+
+{% else %}
+### Kubernetes (k3s) {#access-cluster-k3s}
+
+Goal: use kubectl, the Kubernetes command, from your laptop. The cluster's API (port 6443) is closed to laptops, so kubectl goes through the SSH tunnel.
+
+1. Install kubectl, within one minor version of k3s ({{ f.versions.k3s or NP }}).
+
+{{ per_os("winget install -e --id Kubernetes.kubectl", "brew install kubectl", None) }}
+{% if win %}
+The winget package name is *(not tested)*.
+{% endif %}
+{% if "linux" in oses_shown %}
+On Linux, install it with snap or the official binary from kubernetes.io.
+{% endif %}
+
+2. Copy the cluster's access file (kubeconfig). It is a secret: it gives full control of the cluster, so it stays on your laptop.
+
+{{ cmds("mkdir -p ~/.kube\nssh " ~ mgr ~ " \"sudo cat /etc/rancher/k3s/k3s.yaml\" > ~/.kube/" ~ slug ~ ".yaml", "mkdir -Force $HOME\\.kube\nssh " ~ mgr ~ " \"sudo cat /etc/rancher/k3s/k3s.yaml\" |\n  Set-Content -Encoding ascii $HOME\\.kube\\" ~ slug ~ ".yaml") }}
+{% if win %}
+On Windows PowerShell 5.1, `>` writes a format kubectl cannot read, hence `Set-Content` *(not tested)*.
+{% endif %}
+
+3. Point it at the tunnel (port {{ tunnel_port("k3s") }} on your laptop):
+
+{{ cmds("kubectl config set-cluster default --server=https://127.0.0.1:" ~ tunnel_port("k3s") ~ " \\\n  --kubeconfig ~/.kube/" ~ slug ~ ".yaml", "kubectl config set-cluster default --server=https://127.0.0.1:" ~ tunnel_port("k3s") ~ " `\n  --kubeconfig $HOME\\.kube\\" ~ slug ~ ".yaml") }}
+4. Start the tunnel (`ssh -N {{ slug }}-tunnel`, see [the tunnel](#access-tunnel)) in its own window, then:
+
+{{ cmds("kubectl --kubeconfig ~/.kube/" ~ slug ~ ".yaml get nodes", "kubectl --kubeconfig $HOME\\.kube\\" ~ slug ~ ".yaml get nodes") }}
+**What you should see:** the servers, each with the status Ready.
+
+**If it fails:** "connection refused" means the tunnel is not running. A certificate error means step 3 was skipped.
+{% if f.database and f.database.ha %}
+
+To reach the database through the cluster's database-proxy, which always points at the primary (use another laptop port while the tunnel runs, because {{ tunnel_port(f.database.app) }} is taken):
+
+{{ cmds("kubectl --kubeconfig ~/.kube/" ~ slug ~ ".yaml -n ansibro \\\n  port-forward svc/database-proxy 25432:" ~ f.database.port, "kubectl --kubeconfig $HOME\\.kube\\" ~ slug ~ ".yaml -n ansibro `\n  port-forward svc/database-proxy 25432:" ~ f.database.port) }}
+{% endif %}
+{% if has("portainer") %}
+
+Portainer at <https://portainer.{{ f.domain }}/> can also manage the cluster from the browser.
+{% endif %}
+
+{% endif %}
+### Your own images {#access-cluster-images}
+
+Goal: run your own app images. The image registry ({{ f.registry_addr }}) is reachable only from the servers, so you send the image over SSH and push it on the first server:
+
+{{ cmds("docker save app:1 | ssh " ~ mgr ~ " \"sudo docker load\"\nssh " ~ mgr ~ " \"sudo docker tag app:1 " ~ f.registry_addr ~ "/app:1 && \\\n  sudo docker push " ~ f.registry_addr ~ "/app:1\"", "docker save app:1 | ssh " ~ mgr ~ " \"sudo docker load\"\nssh " ~ mgr ~ " (\"sudo docker tag app:1 " ~ f.registry_addr ~ "/app:1 && \" +\n  \"sudo docker push " ~ f.registry_addr ~ "/app:1\")") }}
+`app:1` is your image name and version.{% if "macos" in oses_shown %} On a Mac with Apple Silicon, build the image with `--platform linux/amd64`: the servers use Intel or AMD processors.{% endif %} The registry is not in the backup: after a restore, push your images again.
+
+{% if show_successor %}
+## Successor: running the installer {#access-successor}
+
+This part is for the person who will change the system with ansibro (the installer) after the handover. It needs macOS or Linux; Windows is not supported (WSL2 is *not tested*). Always run the installer from this one computer.
+
+1. Install git, Python 3.12 or newer, and age (`brew install age` on macOS, `sudo apt install age` on Ubuntu).
+2. Get ansibro and switch to the version this system was built with ({{ f.ansibro.version or NP }}):
+
+```sh
+git clone https://github.com/sgnd/ansibro.git
+cd ansibro
+git tag --list
+```
+
+   Then `git checkout` the tag of version {{ f.ansibro.version or NP }}.
+
+3. Save the attachment ansibro-installer.tar.gz of the entry "{{ groups.internal[first_lang] }}/ansibro installer files" into that folder, then unpack it:
+
+```sh
+tar -xzf ansibro-installer.tar.gz
+chmod 700 state
+```
+
+4. Optional: make a key to keep the installer's records encrypted (state.age):
+
+```sh
+mkdir -p ~/.config/ansibro && age-keygen -o ~/.config/ansibro/age.key
+```
+
+5. Run the installer, then the system test:
+
+```sh
+./install.sh {{ f.config }}.yml
+.venv/bin/python tests/check.py
+```
+
+**What you should see:** the installer ends without "failed", and the test shows PASS lines.
+
+**If it fails:** the passwords in the attachment are the ones of the handover day. After a password change, put the new value into the matching file in state/secrets/ first, as {{ doc_ref }} explains.
+
+{% endif %}
+## Troubleshooting {#access-trouble}
+
+| Problem                                 | What to do                                                            |
+|:----------------------------------------|:----------------------------------------------------------------------|
+{% if has_web %}
+| "403 Forbidden" on a web page           | Your address is not on the admin allow-list. See [Your internet address](#access-ip). |
+| A certificate warning                   | See [Certificates](#access-web-tls). |
+{% endif %}
+| SSH: "Connection timed out"             | Your address is not in ssh.allow_from, or the provider's firewall blocks the port. |
+| SSH: "Permission denied (publickey)"    | Your key is not on that server, or the key file name in the settings is wrong. |
+{% if f.tunnels %}
+| Tunnel: "Address already in use"        | Another program uses that laptop port. Close it, or change the port. |
+{% endif %}
+{% if has("openbao") %}
+| OpenBao says "sealed"                   | After a restart OpenBao is locked. Unlock it on its web page with "{{ entry("openbao_unseal_key") }}", or the operator runs the installer again. |
+{% endif %}
+| Nobody can log in to a server any more  | The operator opens the provider's web console, runs `sudo ufw disable`, fixes the list and runs the installer again. |
+
+When you are stuck, call the vendor{% if support.get("hours") %} ({{ support.hours | md }}){% endif %}. Never send a password by email or chat.
+
+{% if support.get("contacts") %}
+| Name                     | Role                  | Phone                  | Email                          |
+|:-------------------------|:----------------------|:-----------------------|:-------------------------------|
+{% for c in support.contacts %}
+| {{ c.name | md if c.name else NP }} | {{ c.role | md if c.role else NP }} | {{ c.phone | md if c.phone else NP }} | {{ c.email | md if c.email else NP }} |
+{% endfor %}
+{% else %}
+Support contacts: {{ NP }}.
+{% endif %}
