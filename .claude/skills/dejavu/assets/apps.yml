@@ -95,8 +95,10 @@ apps:
     notes:
       - id: Halaman Keycloak terbuka untuk umum (tidak dibatasi IP), karena pengguna aplikasi Anda login di sana.
         en: Keycloak's page is open to anyone (no IP limit), because the users of your apps log in there.
-      - id: Bila Keycloak menjadi login admin, realm "ansibro" dengan user admin melindungi halaman admin. Aplikasi autentikator diatur saat login pertama; bila yang login pertama adalah vendor, reset dulu.
-        en: When Keycloak is the admin login, the realm "ansibro" with user admin guards the admin pages. The authenticator app is set up at the first login; if the vendor logged in first, reset it.
+      - id: Bila Keycloak menjadi login admin, realm "ansibro" dengan user admin melindungi halaman admin.
+        Aplikasi autentikator diatur saat login pertama; bila yang login pertama adalah vendor, reset dulu.
+        en: When Keycloak is the admin login, the realm "ansibro" with user admin guards the admin
+          pages. The authenticator app is set up at the first login; if the vendor logged in first, reset it.
 
   authelia:
     about:
@@ -298,8 +300,10 @@ apps:
     laptop: web
     images: [openbao]
     notes:
-      - id: OpenBao terkunci (sealed) setiap kali restart, dan health check-nya tetap hijau saat terkunci. Buka kuncinya dengan unseal key di halaman web, atau jalankan ./install.sh lagi.
-        en: OpenBao is sealed after every restart, and its health check stays green while sealed. Unseal it with the unseal key in the web page, or run ./install.sh again.
+      - id: OpenBao terkunci (sealed) setiap kali restart, dan health check-nya tetap hijau
+        saat terkunci. Buka kuncinya dengan unseal key di halaman web, atau jalankan ./install.sh lagi.
+        en: OpenBao is sealed after every restart, and its health check stays green
+          while sealed. Unseal it with the unseal key in the web page, or run ./install.sh again.
       - id: Installer memakai root token setiap kali dijalankan; mencabutnya membuat instalasi berikutnya gagal.
         en: The installer uses the root token on every run; revoking it breaks the next install.
 
